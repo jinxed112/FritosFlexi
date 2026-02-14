@@ -17,8 +17,9 @@ export default async function DashboardOverviewPage() {
     .gte('date', monthStart)
     .lte('date', monthEnd);
 
-  const totalHours = (costLines || []).reduce((s, c) => s + c.base_hours, 0);
-  const totalCost = (costLines || []).reduce((s, c) => s + c.total_cost, 0);
+  const lines = (costLines || []) as Array<{ base_hours: number; total_salary: number; employer_contribution: number; total_cost: number }>;
+  const totalHours = lines.reduce((s, c) => s + c.base_hours, 0);
+  const totalCost = lines.reduce((s, c) => s + c.total_cost, 0);
   const nowjobsCost = totalHours * FLEXI_CONSTANTS.NOWJOBS_HOURLY_COST;
   const savings = nowjobsCost - totalCost;
 
@@ -49,8 +50,8 @@ export default async function DashboardOverviewPage() {
     .gte('date', monthStart)
     .lte('date', monthEnd);
 
-  const acceptedShifts = (shifts || []).filter((s) => s.status === 'accepted').length;
-  const incompleteProfiles = (workers || []).filter((w) => !w.profile_complete).length;
+  const acceptedShifts = ((shifts || []) as Array<{ id: string; status: string }>).filter((s) => s.status === 'accepted').length;
+  const incompleteProfiles = ((workers || []) as Array<{ profile_complete: boolean; [k: string]: any }>).filter((w) => !w.profile_complete).length;
 
   return (
     <>
