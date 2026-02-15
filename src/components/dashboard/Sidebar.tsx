@@ -5,8 +5,10 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
   LayoutDashboard, Calendar, Users, Radio,
-  CheckSquare, FileText, Download, ChevronLeft, Menu, X,
+  CheckSquare, FileText, Download, ChevronLeft, Menu, X, LogOut,
 } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
+import { useRouter } from 'next/navigation';
 
 const navItems = [
   { href: '/dashboard/flexis', label: 'Vue d\'ensemble', icon: LayoutDashboard, exact: true },
@@ -22,6 +24,13 @@ export default function DashboardSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push('/flexi/login');
+  };
 
   // Close mobile menu on nav
   useEffect(() => {
@@ -63,6 +72,14 @@ export default function DashboardSidebar() {
           );
         })}
       </nav>
+
+      <div className="px-2 pb-2 mt-auto">
+        <button onClick={handleLogout}
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+          <LogOut size={18} className="flex-shrink-0" />
+          {(!collapsed || isMobile) && <span>Déconnexion</span>}
+        </button>
+      </div>
 
       {!isMobile && (
         <button onClick={() => setCollapsed(!collapsed)}
