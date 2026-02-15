@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { createMultiShifts, proposeShift, cancelShift } from '@/lib/actions/shifts';
+import { createMultiShifts, updateShift, deleteShift, cancelShift } from '@/lib/actions/shifts';
 import { calculateHours, calculateCost, formatEuro } from '@/utils';
 import { Plus, X, ChevronLeft, ChevronRight, Users, Clock, Search } from 'lucide-react';
 import Link from 'next/link';
@@ -48,6 +48,12 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
   const [daySchedules, setDaySchedules] = useState<Record<string, { start: string; end: string }>>({});
   const [sameSchedule, setSameSchedule] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [editingShift, setEditingShift] = useState<any>(null);
+  const [editStart, setEditStart] = useState('');
+  const [editEnd, setEditEnd] = useState('');
+  const [editRole, setEditRole] = useState('');
+  const [editLocation, setEditLocation] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
@@ -148,6 +154,44 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
         days,
       });
       setShowShiftPanel(false);
+    });
+  };
+
+  const openEditPanel = (shift: any) => {
+    setEditingShift(shift);
+    setEditStart(shift.start_time?.slice(0, 5) || '17:00');
+    setEditEnd(shift.end_time?.slice(0, 5) || '21:30');
+    setEditRole(shift.role || 'polyvalent');
+    setEditLocation(shift.location_id || locations[0]?.id || '');
+    setShowDeleteConfirm(false);
+  };
+
+  const handleUpdateShift = () => {
+    if (!editingShift) return;
+    startTransition(async () => {
+      await updateShift(editingShift.id, {
+        start_time: editStart,
+        end_time: editEnd,
+        role: editRole,
+        location_id: editLocation,
+      });
+      setEditingShift(null);
+    });
+  };
+
+  const handleDeleteShift = () => {
+    if (!editingShift) return;
+    startTransition(async () => {
+      await deleteShift(editingShift.id);
+      setEditingShift(null);
+    });
+  };
+
+  const handleCancelShift = () => {
+    if (!editingShift) return;
+    startTransition(async () => {
+      await cancelShift(editingShift.id);
+      setEditingShift(null);
     });
   };
 
@@ -262,13 +306,10 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                               const st = STATUS_STYLES[s.status] || STATUS_STYLES.draft;
                               const h = calculateHours(s.start_time, s.end_time);
                               return (
-                                <div key={s.id} className={`${st.bg} border ${st.border} rounded-lg px-2 py-1.5 text-[10px] leading-tight group relative`}>
+                                <div key={s.id} onClick={() => openEditPanel(s)}
+                                  className={`${st.bg} border ${st.border} rounded-lg px-2 py-1.5 text-[10px] leading-tight group relative cursor-pointer hover:shadow-md transition-shadow`}>
                                   <div className={`font-bold ${st.text}`}>{s.role || 'Polyvalent'}</div>
                                   <div className="text-gray-500">{s.start_time?.slice(0, 5)} – {s.end_time?.slice(0, 5)} ({formatH(h)})</div>
-                                  {(s.status === 'draft' || s.status === 'proposed') && (
-                                    <button onClick={() => startTransition(() => cancelShift(s.id))}
-                                      className="hidden group-hover:flex absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-400 text-white rounded-full items-center justify-center text-[8px] shadow">×</button>
-                                  )}
                                 </div>
                               );
                             })}
@@ -487,6 +528,129 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                 className="flex-1 bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-2.5 font-medium text-sm disabled:opacity-50">
                 {isPending ? 'Création...' : `Ajouter (${selectedDays.length})`}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========== EDIT SHIFT PANEL ========== */}
+      {editingShift && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setEditingShift(null)} />
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md relative z-10">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="font-bold text-gray-900">Modifier le shift</h3>
+              <button onClick={() => setEditingShift(null)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              {/* Worker info */}
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-white text-sm font-bold">
+                  {editingShift.flexi_workers?.first_name?.[0] || '?'}{editingShift.flexi_workers?.last_name?.[0] || '?'}
+                </div>
+                <div>
+                  <div className="font-medium text-gray-800">
+                    {editingShift.flexi_workers?.first_name} {editingShift.flexi_workers?.last_name}
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    {new Date(editingShift.date).toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  </div>
+                </div>
+                <div className="ml-auto">
+                  <span className={`text-[10px] px-2 py-1 rounded-full font-medium ${(STATUS_STYLES[editingShift.status] || STATUS_STYLES.draft).bg} ${(STATUS_STYLES[editingShift.status] || STATUS_STYLES.draft).text}`}>
+                    {(STATUS_STYLES[editingShift.status] || STATUS_STYLES.draft).label}
+                  </span>
+                </div>
+              </div>
+
+              {/* Location */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">Location</label>
+                <select value={editLocation} onChange={(e) => setEditLocation(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm bg-white">
+                  {locations.map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+              </div>
+
+              {/* Times */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1.5">Début</label>
+                  <input type="time" value={editStart} onChange={(e) => setEditStart(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1.5">Fin</label>
+                  <input type="time" value={editEnd} onChange={(e) => setEditEnd(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm" />
+                </div>
+              </div>
+
+              {/* Presets rapides */}
+              <div className="flex gap-2 flex-wrap">
+                {PRESETS.map((p) => (
+                  <button key={p.label} onClick={() => { setEditStart(p.start); setEditEnd(p.end); }}
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors ${
+                      editStart === p.start && editEnd === p.end
+                        ? 'border-orange-400 bg-orange-50 text-orange-600'
+                        : 'border-gray-200 text-gray-500 hover:border-orange-300 hover:text-orange-600'
+                    }`}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Role */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">Rôle</label>
+                <select value={editRole} onChange={(e) => setEditRole(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm bg-white">
+                  <option value="polyvalent">Polyvalent</option>
+                  <option value="cuisine">Cuisine</option>
+                  <option value="caisse">Caisse</option>
+                </select>
+              </div>
+
+              {/* Cost preview */}
+              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl text-sm">
+                <span className="text-gray-500">Coût estimé</span>
+                <span className="font-bold text-gray-800">
+                  {formatEuro(calculateCost(
+                    calculateHours(editStart + ':00', editEnd + ':00'),
+                    editingShift.flexi_workers?.hourly_rate || 12.53
+                  ).total_cost)}
+                </span>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="p-4 border-t space-y-2">
+              <div className="flex gap-2">
+                <button onClick={handleUpdateShift} disabled={isPending}
+                  className="flex-1 bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-2.5 font-medium text-sm disabled:opacity-50">
+                  {isPending ? 'Sauvegarde...' : 'Enregistrer'}
+                </button>
+              </div>
+              <div className="flex gap-2">
+                {editingShift.status !== 'cancelled' && (
+                  <button onClick={handleCancelShift} disabled={isPending}
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl py-2 text-sm font-medium disabled:opacity-50">
+                    Annuler le shift
+                  </button>
+                )}
+                {!showDeleteConfirm ? (
+                  <button onClick={() => setShowDeleteConfirm(true)}
+                    className="flex-1 bg-red-50 hover:bg-red-100 text-red-500 rounded-xl py-2 text-sm font-medium">
+                    Supprimer
+                  </button>
+                ) : (
+                  <button onClick={handleDeleteShift} disabled={isPending}
+                    className="flex-1 bg-red-500 hover:bg-red-600 text-white rounded-xl py-2 text-sm font-medium disabled:opacity-50">
+                    {isPending ? 'Suppression...' : 'Confirmer suppression'}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>

@@ -150,6 +150,49 @@ export async function refuseShift(shiftId: string) {
 }
 
 /**
+ * Update a shift (manager action)
+ */
+export async function updateShift(shiftId: string, input: {
+  start_time?: string;
+  end_time?: string;
+  role?: string;
+  location_id?: string;
+  notes?: string;
+}) {
+  const supabase = createClient();
+
+  const { error } = await supabase
+    .from('shifts')
+    .update(input)
+    .eq('id', shiftId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath('/dashboard/flexis/planning');
+  revalidatePath('/flexi/missions');
+  revalidatePath('/flexi/planning');
+  return { success: true };
+}
+
+/**
+ * Delete a shift permanently (manager action)
+ */
+export async function deleteShift(shiftId: string) {
+  const supabase = createClient();
+
+  const { error } = await supabase
+    .from('shifts')
+    .delete()
+    .eq('id', shiftId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath('/dashboard/flexis/planning');
+  revalidatePath('/flexi/missions');
+  return { success: true };
+}
+
+/**
  * Cancel a shift (manager action)
  */
 export async function cancelShift(shiftId: string) {
