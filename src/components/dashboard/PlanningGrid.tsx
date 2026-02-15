@@ -160,26 +160,26 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between mb-4 gap-2">
+        <div className="flex items-center gap-1 sm:gap-2">
           <Link href={`/dashboard/flexis/planning?week=${prevWeek}`}
-            className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+            className="p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
             <ChevronLeft size={18} />
           </Link>
-          <div className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700">
-            {new Date(weekStart).toLocaleDateString('fr-BE', { day: 'numeric', month: 'short' })} — {weekDays[6].date.toLocaleDateString('fr-BE', { day: 'numeric', month: 'short', year: 'numeric' })}
+          <div className="px-2 sm:px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs sm:text-sm font-medium text-gray-700 whitespace-nowrap">
+            {new Date(weekStart).toLocaleDateString('fr-BE', { day: 'numeric', month: 'short' })} — {weekDays[6].date.toLocaleDateString('fr-BE', { day: 'numeric', month: 'short' })}
           </div>
           <Link href={`/dashboard/flexis/planning?week=${nextWeek}`}
-            className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+            className="p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
             <ChevronRight size={18} />
           </Link>
-          <Link href="/dashboard/flexis/planning" className="text-xs text-orange-500 hover:text-orange-600 font-medium ml-1">
+          <Link href="/dashboard/flexis/planning" className="hidden sm:inline text-xs text-orange-500 hover:text-orange-600 font-medium ml-1">
             Aujourd&apos;hui
           </Link>
         </div>
         <button onClick={() => { setSearchTerm(''); setShowTeamPanel(true); }}
-          className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2">
-          <Users size={16} /> Ajouter à l&apos;équipe
+          className="bg-orange-500 hover:bg-orange-600 text-white px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap">
+          <Users size={16} /> <span className="hidden sm:inline">Ajouter à l&apos;équipe</span><span className="sm:hidden">Équipe</span>
         </button>
       </div>
 
@@ -189,10 +189,11 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium w-56 min-w-[14rem]"></th>
+                <th className="text-left px-3 lg:px-4 py-3 text-xs text-gray-500 font-medium w-40 lg:w-56 min-w-[10rem] lg:min-w-[14rem] sticky left-0 bg-gray-50 z-10"></th>
                 {weekDays.map((d) => (
-                  <th key={d.iso} className={`text-center px-2 py-3 text-xs font-medium min-w-[8rem] ${d.iso === today ? 'bg-orange-50 text-orange-600' : 'text-gray-500'}`}>
-                    {d.dayName} {String(d.num).padStart(2, '0')} {d.month}
+                  <th key={d.iso} className={`text-center px-1 lg:px-2 py-3 text-[10px] lg:text-xs font-medium min-w-[6.5rem] lg:min-w-[8rem] ${d.iso === today ? 'bg-orange-50 text-orange-600' : 'text-gray-500'}`}>
+                    <span className="lg:hidden">{d.dayName} {d.num}</span>
+                    <span className="hidden lg:inline">{d.dayName} {String(d.num).padStart(2, '0')} {d.month}</span>
                   </th>
                 ))}
               </tr>
@@ -200,19 +201,19 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
             <tbody>
               {/* Stats */}
               <tr className="bg-gray-50/50 border-b border-gray-100">
-                <td className="px-4 py-1.5 text-[11px] text-gray-400 font-medium">Heures</td>
+                <td className="px-3 lg:px-4 py-1.5 text-[11px] text-gray-400 font-medium sticky left-0 bg-gray-50/50 z-10">Heures</td>
                 {dayStats.map((s, i) => (
                   <td key={i} className={`text-center text-[11px] font-medium text-gray-500 px-2 py-1.5 ${weekDays[i].iso === today ? 'bg-orange-50/50' : ''}`}>{s.hours > 0 ? formatH(s.hours) : '0h'}</td>
                 ))}
               </tr>
               <tr className="bg-gray-50/50 border-b border-gray-100">
-                <td className="px-4 py-1.5 text-[11px] text-gray-400 font-medium">Employés</td>
+                <td className="px-3 lg:px-4 py-1.5 text-[11px] text-gray-400 font-medium sticky left-0 bg-gray-50/50 z-10">Employés</td>
                 {dayStats.map((s, i) => (
                   <td key={i} className={`text-center text-[11px] text-gray-500 px-2 py-1.5 ${weekDays[i].iso === today ? 'bg-orange-50/50' : ''}`}>{s.employees}</td>
                 ))}
               </tr>
               <tr className="bg-gray-50/50 border-b border-gray-200">
-                <td className="px-4 py-1.5 text-[11px] text-gray-400 font-medium">Coûts</td>
+                <td className="px-3 lg:px-4 py-1.5 text-[11px] text-gray-400 font-medium sticky left-0 bg-gray-50/50 z-10">Coûts</td>
                 {dayStats.map((s, i) => (
                   <td key={i} className={`text-center text-[11px] text-gray-500 px-2 py-1.5 ${weekDays[i].iso === today ? 'bg-orange-50/50' : ''}`}>{formatEuro(s.cost)}</td>
                 ))}
@@ -220,7 +221,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
 
               {/* Team header */}
               <tr className="border-b border-gray-100">
-                <td colSpan={8} className="px-4 py-2 text-xs font-bold text-gray-700 bg-gray-50">
+                <td colSpan={8} className="px-3 lg:px-4 py-2 text-xs font-bold text-gray-700 bg-gray-50">
                   Équipe {teamWorkers.length > 0 && <span className="font-normal text-gray-400">({teamWorkers.length})</span>}
                   {teamWorkers.length === 0 && <span className="font-normal text-gray-400 ml-2">— Ajoutez des membres pour planifier</span>}
                 </td>
@@ -236,18 +237,18 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
 
                 return (
                   <tr key={w.id} className="border-b border-gray-50 hover:bg-gray-50/30">
-                    <td className="px-4 py-3 align-top">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                    <td className="px-3 lg:px-4 py-3 align-top sticky left-0 bg-white z-10">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 lg:w-9 lg:h-9 rounded-full bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-white text-[10px] lg:text-xs font-bold flex-shrink-0">
                           {w.first_name[0]}{w.last_name[0]}
                         </div>
                         <div className="min-w-0">
-                          <div className="font-medium text-gray-800 text-sm truncate">{w.first_name} {w.last_name}</div>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${w.status === 'student' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
-                              {w.status === 'student' ? 'Étudiant' : 'Flexi'}
+                          <div className="font-medium text-gray-800 text-xs lg:text-sm truncate max-w-[7rem] lg:max-w-none">{w.first_name} {w.last_name}</div>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className={`text-[9px] lg:text-[10px] px-1 lg:px-1.5 py-0.5 rounded-full font-medium ${w.status === 'student' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
+                              {w.status === 'student' ? 'Étud.' : 'Flexi'}
                             </span>
-                            {wHours > 0 && <span className="text-[10px] text-gray-400">{formatH(wHours)} · {formatEuro(wCost)}</span>}
+                            {wHours > 0 && <span className="hidden lg:inline text-[10px] text-gray-400">{formatH(wHours)} · {formatEuro(wCost)}</span>}
                           </div>
                         </div>
                       </div>
@@ -289,16 +290,16 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t border-gray-200 text-xs">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-3 lg:px-4 py-3 bg-gray-50 border-t border-gray-200 text-[10px] lg:text-xs">
+          <div className="flex items-center gap-3 lg:gap-4 flex-wrap">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-400"></span> Accepté</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400"></span> En attente</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-gray-300"></span> Brouillon</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-red-400"></span> Annulé</span>
           </div>
-          <div className="flex items-center gap-6 text-gray-500">
-            <span>Total heures : <strong className="text-gray-700">{formatH(totalHours)}</strong></span>
-            <span>Coût total : <strong className="text-gray-700">{formatEuro(totalCost)}</strong></span>
+          <div className="flex items-center gap-4 lg:gap-6 text-gray-500">
+            <span>Heures : <strong className="text-gray-700">{formatH(totalHours)}</strong></span>
+            <span>Coût : <strong className="text-gray-700">{formatEuro(totalCost)}</strong></span>
           </div>
         </div>
       </div>
@@ -306,8 +307,8 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
       {/* ========== TEAM PANEL ========== */}
       {showTeamPanel && (
         <div className="fixed inset-0 z-50 flex">
-          <div className="flex-1 bg-black/30" onClick={() => setShowTeamPanel(false)} />
-          <div className="w-96 bg-white shadow-2xl flex flex-col h-full">
+          <div className="hidden sm:block flex-1 bg-black/30" onClick={() => setShowTeamPanel(false)} />
+          <div className="w-full sm:w-96 bg-white shadow-2xl flex flex-col h-full">
             <div className="flex items-center justify-between p-4 border-b">
               <h3 className="font-bold text-gray-900">Ajouter à l&apos;équipe</h3>
               <button onClick={() => setShowTeamPanel(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
@@ -369,8 +370,8 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
       {/* ========== SHIFT PANEL ========== */}
       {showShiftPanel && shiftWorker && (
         <div className="fixed inset-0 z-50 flex">
-          <div className="flex-1 bg-black/30" onClick={() => setShowShiftPanel(false)} />
-          <div className="w-[28rem] bg-white shadow-2xl flex flex-col h-full overflow-y-auto">
+          <div className="hidden sm:block flex-1 bg-black/30" onClick={() => setShowShiftPanel(false)} />
+          <div className="w-full sm:w-[28rem] bg-white shadow-2xl flex flex-col h-full overflow-y-auto">
             <div className="flex items-center justify-between p-4 border-b">
               <h3 className="font-bold text-gray-900">Créer un shift</h3>
               <button onClick={() => setShowShiftPanel(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
