@@ -1,33 +1,53 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { createShift, proposeShift, cancelShift } from '@/lib/actions/shifts';
+import { createMultiShifts, proposeShift, cancelShift } from '@/lib/actions/shifts';
 import { calculateHours, calculateCost, formatEuro } from '@/utils';
-import { Plus, X } from 'lucide-react';
+import { Plus, X, ChevronLeft, ChevronRight, Users, Clock, Search } from 'lucide-react';
+import Link from 'next/link';
 
-const DAY_NAMES = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+const DAY_NAMES_SHORT = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'];
+const MONTH_NAMES = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 
-const statusStyles: Record<string, { bg: string; text: string; label: string }> = {
-  draft: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Brouillon' },
-  proposed: { bg: 'bg-amber-50', text: 'text-amber-700', label: 'Proposé' },
-  accepted: { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Accepté' },
-  refused: { bg: 'bg-red-50', text: 'text-red-600', label: 'Refusé' },
-  completed: { bg: 'bg-blue-50', text: 'text-blue-600', label: 'Terminé' },
-  cancelled: { bg: 'bg-gray-50', text: 'text-gray-400', label: 'Annulé' },
+const STATUS_STYLES: Record<string, { bg: string; border: string; text: string; label: string }> = {
+  draft: { bg: 'bg-gray-100', border: 'border-gray-200', text: 'text-gray-600', label: 'Brouillon' },
+  proposed: { bg: 'bg-amber-50', border: 'border-amber-300', text: 'text-amber-700', label: 'En attente' },
+  accepted: { bg: 'bg-emerald-50', border: 'border-emerald-400', text: 'text-emerald-700', label: 'Accepté' },
+  refused: { bg: 'bg-red-50', border: 'border-red-300', text: 'text-red-600', label: 'Refusé' },
+  completed: { bg: 'bg-blue-50', border: 'border-blue-300', text: 'text-blue-600', label: 'Terminé' },
+  cancelled: { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-400', label: 'Annulé' },
 };
+
+const PRESETS = [
+  { label: 'Ouverture', start: '17:00', end: '21:30' },
+  { label: 'Classique', start: '18:00', end: '21:30' },
+  { label: 'Midi', start: '11:00', end: '15:00' },
+  { label: 'Journée', start: '11:00', end: '21:30' },
+];
 
 interface Props {
   shifts: any[];
   locations: any[];
-  workers: any[];
-  availabilities: any[];
+  allWorkers: any[];
   weekStart: string;
+  prevWeek: string;
+  nextWeek: string;
 }
 
-export default function PlanningGrid({ shifts, locations, workers, availabilities, weekStart }: Props) {
-  const [showModal, setShowModal] = useState(false);
-  const [modalDate, setModalDate] = useState('');
-  const [modalLocation, setModalLocation] = useState('');
+export default function PlanningGrid({ shifts, locations, allWorkers, weekStart, prevWeek, nextWeek }: Props) {
+  const [teamIds, setTeamIds] = useState<string[]>(() => {
+    const workerIdsWithShifts = [...new Set(shifts.filter((s: any) => s.worker_id).map((s: any) => s.worker_id))];
+    return workerIdsWithShifts;
+  });
+  const [showTeamPanel, setShowTeamPanel] = useState(false);
+  const [showShiftPanel, setShowShiftPanel] = useState(false);
+  const [shiftWorker, setShiftWorker] = useState<any>(null);
+  const [shiftLocation, setShiftLocation] = useState('');
+  const [shiftRole, setShiftRole] = useState('polyvalent');
+  const [selectedDays, setSelectedDays] = useState<string[]>([]);
+  const [daySchedules, setDaySchedules] = useState<Record<string, { start: string; end: string }>>({});
+  const [sameSchedule, setSameSchedule] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
   const [isPending, startTransition] = useTransition();
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
@@ -36,170 +56,437 @@ export default function PlanningGrid({ shifts, locations, workers, availabilitie
     return {
       date: d,
       iso: d.toISOString().split('T')[0],
-      label: DAY_NAMES[i],
+      dayName: DAY_NAMES_SHORT[i],
       num: d.getDate(),
+      month: MONTH_NAMES[d.getMonth()],
     };
   });
 
   const today = new Date().toISOString().split('T')[0];
+  const teamWorkers = allWorkers.filter((w: any) => teamIds.includes(w.id));
+  const availableWorkers = allWorkers.filter((w: any) => !teamIds.includes(w.id));
+  const filteredAvailable = availableWorkers.filter((w: any) =>
+    `${w.first_name} ${w.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
-  const handleCreateShift = (formData: FormData) => {
-    startTransition(async () => {
-      await createShift({
-        location_id: formData.get('location_id') as string,
-        worker_id: formData.get('worker_id') as string || undefined,
-        date: formData.get('date') as string,
-        start_time: formData.get('start_time') as string,
-        end_time: formData.get('end_time') as string,
-        role: formData.get('role') as any,
-      });
-      setShowModal(false);
+  const dayStats = weekDays.map((d) => {
+    const dayShifts = shifts.filter((s: any) => s.date === d.iso && s.status !== 'cancelled' && s.status !== 'refused');
+    let totalHours = 0;
+    let totalCost = 0;
+    const workerSet = new Set<string>();
+    dayShifts.forEach((s: any) => {
+      const h = calculateHours(s.start_time, s.end_time);
+      const rate = s.flexi_workers?.hourly_rate || 12.53;
+      totalHours += h;
+      totalCost += calculateCost(h, rate).total_cost;
+      if (s.worker_id) workerSet.add(s.worker_id);
+    });
+    return { hours: totalHours, employees: workerSet.size, cost: totalCost };
+  });
+
+  const totalHours = dayStats.reduce((s, d) => s + d.hours, 0);
+  const totalCost = dayStats.reduce((s, d) => s + d.cost, 0);
+
+  const addToTeam = (workerId: string) => setTeamIds((prev) => [...prev, workerId]);
+  const removeFromTeam = (workerId: string) => setTeamIds((prev) => prev.filter((id) => id !== workerId));
+
+  const openShiftPanel = (worker: any, initialDay?: string) => {
+    setShiftWorker(worker);
+    setShiftLocation(locations[0]?.id || '');
+    setShiftRole('polyvalent');
+    const preset = PRESETS[0];
+    if (initialDay) {
+      setSelectedDays([initialDay]);
+      setDaySchedules({ [initialDay]: { start: preset.start, end: preset.end } });
+    } else {
+      setSelectedDays([]);
+      setDaySchedules({});
+    }
+    setSameSchedule(true);
+    setShowShiftPanel(true);
+  };
+
+  const toggleDay = (iso: string) => {
+    setSelectedDays((prev) => {
+      if (prev.includes(iso)) return prev.filter((d) => d !== iso);
+      const preset = PRESETS[0];
+      setDaySchedules((ds) => ({ ...ds, [iso]: { start: preset.start, end: preset.end } }));
+      return [...prev, iso];
     });
   };
 
-  const handlePropose = (shiftId: string) => {
-    startTransition(() => proposeShift(shiftId));
+  const applyPreset = (preset: typeof PRESETS[0]) => {
+    const updated: Record<string, { start: string; end: string }> = {};
+    selectedDays.forEach((d) => { updated[d] = { start: preset.start, end: preset.end }; });
+    setDaySchedules((prev) => ({ ...prev, ...updated }));
   };
 
-  const handleCancel = (shiftId: string) => {
-    startTransition(() => cancelShift(shiftId));
+  const updateDaySchedule = (iso: string, field: 'start' | 'end', value: string) => {
+    if (sameSchedule) {
+      setDaySchedules((prev) => {
+        const updated = { ...prev };
+        selectedDays.forEach((d) => { updated[d] = { ...(updated[d] || { start: '17:00', end: '21:30' }), [field]: value }; });
+        return updated;
+      });
+    } else {
+      setDaySchedules((prev) => ({ ...prev, [iso]: { ...prev[iso], [field]: value } }));
+    }
   };
 
-  const openModal = (date: string, locationId: string) => {
-    setModalDate(date);
-    setModalLocation(locationId);
-    setShowModal(true);
+  const handleCreateShifts = () => {
+    if (!shiftWorker || selectedDays.length === 0) return;
+    const days = selectedDays.map((iso) => ({
+      date: iso,
+      start_time: daySchedules[iso]?.start || '17:00',
+      end_time: daySchedules[iso]?.end || '21:30',
+    }));
+    startTransition(async () => {
+      await createMultiShifts({
+        worker_id: shiftWorker.id,
+        location_id: shiftLocation,
+        role: shiftRole,
+        days,
+      });
+      setShowShiftPanel(false);
+    });
+  };
+
+  const formatH = (h: number) => {
+    const hrs = Math.floor(h);
+    const mins = Math.round((h - hrs) * 60);
+    return mins > 0 ? `${hrs}h${mins.toString().padStart(2, '0')}` : `${hrs}h`;
   };
 
   return (
     <>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Planning</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
-            Semaine du {new Date(weekStart).toLocaleDateString('fr-BE', { day: 'numeric', month: 'long' })}
-          </p>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Link href={`/dashboard/flexis/planning?week=${prevWeek}`}
+            className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+            <ChevronLeft size={18} />
+          </Link>
+          <div className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700">
+            {new Date(weekStart).toLocaleDateString('fr-BE', { day: 'numeric', month: 'short' })} — {weekDays[6].date.toLocaleDateString('fr-BE', { day: 'numeric', month: 'short', year: 'numeric' })}
+          </div>
+          <Link href={`/dashboard/flexis/planning?week=${nextWeek}`}
+            className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+            <ChevronRight size={18} />
+          </Link>
+          <Link href="/dashboard/flexis/planning" className="text-xs text-orange-500 hover:text-orange-600 font-medium ml-1">
+            Aujourd&apos;hui
+          </Link>
         </div>
-        <button
-          onClick={() => { setModalDate(today); setModalLocation(locations[0]?.id || ''); setShowModal(true); }}
-          className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-1"
-        >
-          <Plus size={16} /> Nouveau shift
+        <button onClick={() => { setSearchTerm(''); setShowTeamPanel(true); }}
+          className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2">
+          <Users size={16} /> Ajouter à l&apos;équipe
         </button>
       </div>
 
+      {/* Grid */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm border-collapse">
             <thead>
-              <tr className="bg-gray-50">
-                <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium w-24">Location</th>
+              <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium w-56 min-w-[14rem]"></th>
                 {weekDays.map((d) => (
-                  <th key={d.iso} className={`text-center px-2 py-3 text-xs font-medium min-w-[120px] ${d.iso === today ? 'text-orange-600 bg-orange-50' : 'text-gray-500'}`}>
-                    {d.label} {d.num}
+                  <th key={d.iso} className={`text-center px-2 py-3 text-xs font-medium min-w-[8rem] ${d.iso === today ? 'bg-orange-50 text-orange-600' : 'text-gray-500'}`}>
+                    {d.dayName} {String(d.num).padStart(2, '0')} {d.month}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {locations.map((loc: any) => (
-                <tr key={loc.id} className="border-t border-gray-50">
-                  <td className="px-4 py-3 font-medium text-gray-800 align-top">{loc.name}</td>
-                  {weekDays.map((d) => {
-                    const dayShifts = shifts.filter((s: any) => s.date === d.iso && s.location_id === loc.id);
-                    return (
-                      <td key={d.iso} className={`px-2 py-2 align-top ${d.iso === today ? 'bg-orange-50/50' : ''}`}>
-                        <div className="space-y-1 min-h-[4rem]">
-                          {dayShifts.map((s: any) => {
-                            const w = s.flexi_workers;
-                            const sc = statusStyles[s.status] || statusStyles.draft;
-                            const hours = calculateHours(s.start_time, s.end_time);
-                            const cost = calculateCost(hours, w?.hourly_rate || 12.53);
+              {/* Stats */}
+              <tr className="bg-gray-50/50 border-b border-gray-100">
+                <td className="px-4 py-1.5 text-[11px] text-gray-400 font-medium">Heures</td>
+                {dayStats.map((s, i) => (
+                  <td key={i} className={`text-center text-[11px] font-medium text-gray-500 px-2 py-1.5 ${weekDays[i].iso === today ? 'bg-orange-50/50' : ''}`}>{s.hours > 0 ? formatH(s.hours) : '0h'}</td>
+                ))}
+              </tr>
+              <tr className="bg-gray-50/50 border-b border-gray-100">
+                <td className="px-4 py-1.5 text-[11px] text-gray-400 font-medium">Employés</td>
+                {dayStats.map((s, i) => (
+                  <td key={i} className={`text-center text-[11px] text-gray-500 px-2 py-1.5 ${weekDays[i].iso === today ? 'bg-orange-50/50' : ''}`}>{s.employees}</td>
+                ))}
+              </tr>
+              <tr className="bg-gray-50/50 border-b border-gray-200">
+                <td className="px-4 py-1.5 text-[11px] text-gray-400 font-medium">Coûts</td>
+                {dayStats.map((s, i) => (
+                  <td key={i} className={`text-center text-[11px] text-gray-500 px-2 py-1.5 ${weekDays[i].iso === today ? 'bg-orange-50/50' : ''}`}>{formatEuro(s.cost)}</td>
+                ))}
+              </tr>
 
-                            return (
-                              <div key={s.id} className={`${sc.bg} rounded-lg p-1.5 text-[10px] leading-tight group relative`}>
-                                <div className={`font-bold ${sc.text}`}>{w ? `${w.first_name}` : '?'}</div>
-                                <div className="text-gray-500">{s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}</div>
-                                <div className={`text-[9px] mt-0.5 ${sc.text}`}>{sc.label}</div>
-                                <div className="text-gray-400 mt-0.5">{formatEuro(cost.total_cost)}</div>
+              {/* Team header */}
+              <tr className="border-b border-gray-100">
+                <td colSpan={8} className="px-4 py-2 text-xs font-bold text-gray-700 bg-gray-50">
+                  Équipe {teamWorkers.length > 0 && <span className="font-normal text-gray-400">({teamWorkers.length})</span>}
+                  {teamWorkers.length === 0 && <span className="font-normal text-gray-400 ml-2">— Ajoutez des membres pour planifier</span>}
+                </td>
+              </tr>
 
-                                {s.status === 'draft' && (
-                                  <div className="hidden group-hover:flex absolute top-0 right-0 gap-0.5 p-0.5">
-                                    <button onClick={() => handlePropose(s.id)} className="bg-amber-500 text-white rounded px-1 py-0.5 text-[8px]">Proposer</button>
-                                    <button onClick={() => handleCancel(s.id)} className="bg-gray-300 text-gray-600 rounded px-1 py-0.5 text-[8px]">×</button>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                          <button
-                            onClick={() => openModal(d.iso, loc.id)}
-                            className="w-full py-1 text-gray-300 hover:text-orange-400 hover:bg-orange-50 rounded text-xs transition-colors"
-                          >
-                            +
-                          </button>
+              {/* Workers */}
+              {teamWorkers.map((w: any) => {
+                const wShifts = shifts.filter((s: any) => s.worker_id === w.id);
+                const wHours = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused')
+                  .reduce((sum: number, s: any) => sum + calculateHours(s.start_time, s.end_time), 0);
+                const wCost = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused')
+                  .reduce((sum: number, s: any) => sum + calculateCost(calculateHours(s.start_time, s.end_time), w.hourly_rate || 12.53).total_cost, 0);
+
+                return (
+                  <tr key={w.id} className="border-b border-gray-50 hover:bg-gray-50/30">
+                    <td className="px-4 py-3 align-top">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                          {w.first_name[0]}{w.last_name[0]}
                         </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+                        <div className="min-w-0">
+                          <div className="font-medium text-gray-800 text-sm truncate">{w.first_name} {w.last_name}</div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${w.status === 'student' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
+                              {w.status === 'student' ? 'Étudiant' : 'Flexi'}
+                            </span>
+                            {wHours > 0 && <span className="text-[10px] text-gray-400">{formatH(wHours)} · {formatEuro(wCost)}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    {weekDays.map((d) => {
+                      const cellShifts = wShifts.filter((s: any) => s.date === d.iso);
+                      return (
+                        <td key={d.iso} className={`px-1.5 py-2 align-top ${d.iso === today ? 'bg-orange-50/30' : ''}`}>
+                          <div className="min-h-[3rem] space-y-1">
+                            {cellShifts.map((s: any) => {
+                              const st = STATUS_STYLES[s.status] || STATUS_STYLES.draft;
+                              const h = calculateHours(s.start_time, s.end_time);
+                              return (
+                                <div key={s.id} className={`${st.bg} border ${st.border} rounded-lg px-2 py-1.5 text-[10px] leading-tight group relative`}>
+                                  <div className={`font-bold ${st.text}`}>{s.role || 'Polyvalent'}</div>
+                                  <div className="text-gray-500">{s.start_time?.slice(0, 5)} – {s.end_time?.slice(0, 5)} ({formatH(h)})</div>
+                                  {(s.status === 'draft' || s.status === 'proposed') && (
+                                    <button onClick={() => startTransition(() => cancelShift(s.id))}
+                                      className="hidden group-hover:flex absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-400 text-white rounded-full items-center justify-center text-[8px] shadow">×</button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {cellShifts.length === 0 && (
+                              <button onClick={() => openShiftPanel(w, d.iso)}
+                                className="w-full h-10 flex items-center justify-center text-gray-300 hover:text-orange-400 hover:bg-orange-50 rounded-lg transition-colors">
+                                <Plus size={16} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t border-gray-200 text-xs">
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-400"></span> Accepté</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400"></span> En attente</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-gray-300"></span> Brouillon</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-red-400"></span> Annulé</span>
+          </div>
+          <div className="flex items-center gap-6 text-gray-500">
+            <span>Total heures : <strong className="text-gray-700">{formatH(totalHours)}</strong></span>
+            <span>Coût total : <strong className="text-gray-700">{formatEuro(totalCost)}</strong></span>
+          </div>
+        </div>
       </div>
 
-      {/* Create Shift Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-gray-900">Nouveau shift</h3>
-              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+      {/* ========== TEAM PANEL ========== */}
+      {showTeamPanel && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="flex-1 bg-black/30" onClick={() => setShowTeamPanel(false)} />
+          <div className="w-96 bg-white shadow-2xl flex flex-col h-full">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="font-bold text-gray-900">Ajouter à l&apos;équipe</h3>
+              <button onClick={() => setShowTeamPanel(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
             </div>
-            <form action={handleCreateShift} className="space-y-3">
-              <input type="hidden" name="date" value={modalDate} />
+            <div className="p-4 border-b">
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" />
+                <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Rechercher..." className="w-full pl-9 pr-3 py-2 rounded-xl border border-gray-200 text-sm" />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {teamWorkers.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-[11px] text-gray-400 font-medium mb-2 uppercase">Dans l&apos;équipe ({teamWorkers.length})</p>
+                  {teamWorkers.map((w: any) => (
+                    <div key={w.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-orange-50 mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-white text-[10px] font-bold">{w.first_name[0]}{w.last_name[0]}</div>
+                        <div>
+                          <div className="text-sm font-medium text-gray-800">{w.first_name} {w.last_name}</div>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${w.status === 'student' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
+                            {w.status === 'student' ? 'Étudiant' : 'Flexi'}
+                          </span>
+                        </div>
+                      </div>
+                      <button onClick={() => removeFromTeam(w.id)} className="text-red-400 hover:text-red-600 text-xs">Retirer</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-[11px] text-gray-400 font-medium mb-2 uppercase">Disponibles ({filteredAvailable.length})</p>
+              {filteredAvailable.map((w: any) => (
+                <div key={w.id} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 transition-colors">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-[10px] font-bold">{w.first_name[0]}{w.last_name[0]}</div>
+                    <div>
+                      <div className="text-sm font-medium text-gray-800">{w.first_name} {w.last_name}</div>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${w.status === 'student' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
+                        {w.status === 'student' ? 'Étudiant' : 'Flexi'}
+                      </span>
+                    </div>
+                  </div>
+                  <button onClick={() => addToTeam(w.id)}
+                    className="w-7 h-7 rounded-full bg-orange-100 hover:bg-orange-200 text-orange-500 flex items-center justify-center transition-colors">
+                    <Plus size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="p-4 border-t">
+              <button onClick={() => setShowTeamPanel(false)}
+                className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-2.5 font-medium text-sm">Terminé</button>
+            </div>
+          </div>
+        </div>
+      )}
 
+      {/* ========== SHIFT PANEL ========== */}
+      {showShiftPanel && shiftWorker && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="flex-1 bg-black/30" onClick={() => setShowShiftPanel(false)} />
+          <div className="w-[28rem] bg-white shadow-2xl flex flex-col h-full overflow-y-auto">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="font-bold text-gray-900">Créer un shift</h3>
+              <button onClick={() => setShowShiftPanel(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+            </div>
+            <div className="p-4 space-y-5">
+              {/* Worker */}
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-white text-sm font-bold">{shiftWorker.first_name[0]}{shiftWorker.last_name[0]}</div>
+                <div>
+                  <div className="font-medium text-gray-800">{shiftWorker.first_name} {shiftWorker.last_name}</div>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${shiftWorker.status === 'student' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
+                    {shiftWorker.status === 'student' ? 'Étudiant' : 'Flexi'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Location */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Location</label>
-                <select name="location_id" defaultValue={modalLocation} className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white">
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">Location</label>
+                <select value={shiftLocation} onChange={(e) => setShiftLocation(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm bg-white">
                   {locations.map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </select>
               </div>
 
+              {/* Role */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Flexi worker</label>
-                <select name="worker_id" className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white">
-                  <option value="">— Non assigné —</option>
-                  {workers.map((w: any) => <option key={w.id} value={w.id}>{w.first_name} {w.last_name}</option>)}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Début</label>
-                  <input type="time" name="start_time" defaultValue="11:00" className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" required />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Fin</label>
-                  <input type="time" name="end_time" defaultValue="15:00" className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" required />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Rôle</label>
-                <select name="role" className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white">
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">Rôle</label>
+                <select value={shiftRole} onChange={(e) => setShiftRole(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm bg-white">
                   <option value="polyvalent">Polyvalent</option>
                   <option value="cuisine">Cuisine</option>
                   <option value="caisse">Caisse</option>
                 </select>
               </div>
 
-              <button type="submit" disabled={isPending}
-                className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-2.5 font-medium text-sm transition-colors disabled:opacity-50">
-                {isPending ? 'Création...' : 'Créer le shift'}
+              {/* Presets */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">Horaire type</label>
+                <div className="flex gap-2 flex-wrap">
+                  {PRESETS.map((p) => (
+                    <button key={p.label} onClick={() => applyPreset(p)}
+                      className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:border-orange-300 hover:text-orange-600 hover:bg-orange-50 transition-colors">
+                      <Clock size={10} className="inline mr-1" />{p.label} ({p.start}–{p.end})
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Days */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">Jours</label>
+                <div className="grid grid-cols-7 gap-1">
+                  {weekDays.map((d) => {
+                    const selected = selectedDays.includes(d.iso);
+                    const hasShift = shifts.some((s: any) => s.worker_id === shiftWorker.id && s.date === d.iso && s.status !== 'cancelled');
+                    return (
+                      <button key={d.iso} onClick={() => !hasShift && toggleDay(d.iso)} disabled={hasShift}
+                        className={`py-2 rounded-lg text-center text-xs font-medium transition-colors ${
+                          hasShift ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                            : selected ? 'bg-orange-500 text-white'
+                            : d.iso === today ? 'bg-orange-50 text-orange-600 hover:bg-orange-100'
+                            : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                        }`}>
+                        <div className="text-[10px] opacity-60">{d.dayName}</div>
+                        <div>{d.num}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1">{selectedDays.length} jour(s) sélectionné(s)</p>
+              </div>
+
+              {/* Schedules */}
+              {selectedDays.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-medium text-gray-500">Horaires</label>
+                    {selectedDays.length > 1 && (
+                      <label className="flex items-center gap-1.5 text-[11px] text-gray-500 cursor-pointer">
+                        <input type="checkbox" checked={sameSchedule} onChange={(e) => setSameSchedule(e.target.checked)}
+                          className="rounded border-gray-300 text-orange-500 focus:ring-orange-500" />
+                        Même horaire
+                      </label>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {(sameSchedule ? [selectedDays[0]] : [...selectedDays].sort()).map((iso) => {
+                      const d = weekDays.find((wd) => wd.iso === iso);
+                      const sched = daySchedules[iso] || { start: '17:00', end: '21:30' };
+                      const h = calculateHours(sched.start + ':00', sched.end + ':00');
+                      return (
+                        <div key={iso} className="flex items-center gap-2 p-2.5 bg-gray-50 rounded-xl">
+                          <div className="text-xs text-gray-500 w-16 flex-shrink-0">{sameSchedule ? 'Tous' : `${d?.dayName} ${d?.num}`}</div>
+                          <input type="time" value={sched.start} onChange={(e) => updateDaySchedule(iso, 'start', e.target.value)}
+                            className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm w-24" />
+                          <span className="text-gray-400">–</span>
+                          <input type="time" value={sched.end} onChange={(e) => updateDaySchedule(iso, 'end', e.target.value)}
+                            className="px-2 py-1.5 rounded-lg border border-gray-200 text-sm w-24" />
+                          <span className="text-[10px] text-gray-400 ml-auto">{formatH(h)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-auto p-4 border-t flex gap-3">
+              <button onClick={() => setShowShiftPanel(false)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl py-2.5 font-medium text-sm">Annuler</button>
+              <button onClick={handleCreateShifts} disabled={isPending || selectedDays.length === 0}
+                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-2.5 font-medium text-sm disabled:opacity-50">
+                {isPending ? 'Création...' : `Ajouter (${selectedDays.length})`}
               </button>
-            </form>
+            </div>
           </div>
         </div>
       )}

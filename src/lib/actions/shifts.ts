@@ -5,6 +5,39 @@ import { revalidatePath } from 'next/cache';
 import type { CreateShiftInput } from '@/types';
 
 /**
+ * Create shifts on multiple days at once (manager action)
+ */
+export async function createMultiShifts(input: {
+  worker_id: string;
+  location_id: string;
+  role: string;
+  days: { date: string; start_time: string; end_time: string }[];
+}) {
+  const supabase = createClient();
+
+  const rows = input.days.map((d) => ({
+    location_id: input.location_id,
+    worker_id: input.worker_id,
+    date: d.date,
+    start_time: d.start_time,
+    end_time: d.end_time,
+    role: input.role || 'polyvalent',
+    status: 'proposed' as const,
+  }));
+
+  const { data, error } = await supabase
+    .from('shifts')
+    .insert(rows)
+    .select();
+
+  if (error) return { error: error.message };
+
+  revalidatePath('/dashboard/flexis/planning');
+  revalidatePath('/flexi/missions');
+  return { data };
+}
+
+/**
  * Create a new shift (manager action)
  */
 export async function createShift(input: CreateShiftInput) {
