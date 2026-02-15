@@ -19,7 +19,7 @@ function LoginForm() {
     setLoading(true);
 
     const supabase = createClient();
-    const { error: authError } = await supabase.auth.signInWithPassword({
+    const { data, error: authError } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
@@ -30,7 +30,10 @@ function LoginForm() {
       return;
     }
 
-    router.push(redirect);
+    // Redirect based on role
+    const role = data.user?.user_metadata?.role;
+    const destination = role === 'manager' ? '/dashboard/flexis' : redirect;
+    router.push(destination);
     router.refresh();
   };
 

@@ -1,19 +1,27 @@
 import { createClient } from '@/lib/supabase/server';
+import { redirect } from 'next/navigation';
 
 export default async function FlexiPlanningPage() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
+  if (!user) redirect('/flexi/login');
+  if (user.user_metadata?.role === 'manager') redirect('/dashboard/flexis');
+
   const { data: worker } = await supabase
     .from('flexi_workers')
     .select('id')
-    .eq('user_id', user!.id)
+    .eq('user_id', user.id)
     .single();
+
+  if (!worker) {
+    return <div className="text-center py-10 text-gray-400"><p>Profil introuvable</p></div>;
+  }
 
   const { data: shifts } = await supabase
     .from('shifts')
     .select('*, locations(name), dimona_declarations(status)')
-    .eq('worker_id', worker!.id)
+    .eq('worker_id', (worker as any).id)
     .eq('status', 'accepted')
     .gte('date', new Date().toISOString().split('T')[0])
     .order('date');
