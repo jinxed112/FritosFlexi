@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { createMultiShifts, updateShift, deleteShift, cancelShift } from '@/lib/actions/shifts';
 import { calculateHours, calculateCost, formatEuro } from '@/utils';
 import { Plus, X, ChevronLeft, ChevronRight, Users, Clock, Search } from 'lucide-react';
@@ -35,6 +36,7 @@ interface Props {
 }
 
 export default function PlanningGrid({ shifts, locations, allWorkers, weekStart, prevWeek, nextWeek }: Props) {
+  const router = useRouter();
   const [teamIds, setTeamIds] = useState<string[]>(() => {
     const workerIdsWithShifts = [...new Set(shifts.filter((s: any) => s.worker_id).map((s: any) => s.worker_id))];
     return workerIdsWithShifts;
@@ -154,6 +156,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
         days,
       });
       setShowShiftPanel(false);
+      router.refresh();
     });
   };
 
@@ -176,6 +179,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
         location_id: editLocation,
       });
       setEditingShift(null);
+      router.refresh();
     });
   };
 
@@ -184,6 +188,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
     startTransition(async () => {
       await deleteShift(editingShift.id);
       setEditingShift(null);
+      router.refresh();
     });
   };
 
@@ -192,6 +197,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
     startTransition(async () => {
       await cancelShift(editingShift.id);
       setEditingShift(null);
+      router.refresh();
     });
   };
 

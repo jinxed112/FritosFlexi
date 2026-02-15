@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { acceptShift, refuseShift } from '@/lib/actions/shifts';
 import { calculateCost, calculateHours, formatEuro } from '@/utils';
 import { Clock, MapPin } from 'lucide-react';
@@ -20,27 +21,46 @@ const statusLabels: Record<string, { label: string; class: string }> = {
 };
 
 export default function MissionsList({ proposed, history, hourlyRate }: MissionsListProps) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleAccept = (shiftId: string) => {
     setProcessingId(shiftId);
+    setError(null);
     startTransition(async () => {
-      await acceptShift(shiftId);
+      const result = await acceptShift(shiftId);
+      if (result?.error) {
+        setError(result.error);
+      }
       setProcessingId(null);
+      router.refresh();
     });
   };
 
   const handleRefuse = (shiftId: string) => {
     setProcessingId(shiftId);
+    setError(null);
     startTransition(async () => {
-      await refuseShift(shiftId);
+      const result = await refuseShift(shiftId);
+      if (result?.error) {
+        setError(result.error);
+      }
       setProcessingId(null);
+      router.refresh();
     });
   };
 
   return (
     <div>
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 ml-2 text-lg leading-none">&times;</button>
+        </div>
+      )}
+
       {proposed.length > 0 && (
         <>
           <h2 className="text-sm font-bold text-gray-800 mb-3">Nouvelles missions</h2>
