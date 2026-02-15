@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useEffect, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createMultiShifts, updateShift, deleteShift, cancelShift } from '@/lib/actions/shifts';
 import { calculateHours, calculateCost, formatEuro } from '@/utils';
-import { Plus, X, ChevronLeft, ChevronRight, Users, Clock, Search } from 'lucide-react';
+import { Plus, X, ChevronLeft, ChevronRight, Users, Clock, Search, MapPin } from 'lucide-react';
 import Link from 'next/link';
 
 const DAY_NAMES_SHORT = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'];
@@ -37,10 +37,30 @@ interface Props {
 
 export default function PlanningGrid({ shifts, locations, allWorkers, weekStart, prevWeek, nextWeek }: Props) {
   const router = useRouter();
+
+  // --- Location filter ---
+  const [filterLocationId, setFilterLocationId] = useState<string>('all');
+
+  // Filter shifts by selected location
+  const filteredShifts = filterLocationId === 'all'
+    ? shifts
+    : shifts.filter((s: any) => s.location_id === filterLocationId);
+
+  // --- Team IDs: sync with shifts prop (fixes refresh bug) ---
   const [teamIds, setTeamIds] = useState<string[]>(() => {
-    const workerIdsWithShifts = [...new Set(shifts.filter((s: any) => s.worker_id).map((s: any) => s.worker_id))];
-    return workerIdsWithShifts;
+    return [...new Set(shifts.filter((s: any) => s.worker_id).map((s: any) => s.worker_id))];
   });
+
+  // Re-sync teamIds whenever shifts prop changes (after router.refresh)
+  useEffect(() => {
+    setTeamIds((prev) => {
+      const fromShifts = [...new Set(shifts.filter((s: any) => s.worker_id).map((s: any) => s.worker_id))] as string[];
+      // Merge: keep manually added workers + add any new ones from shifts
+      const merged = new Set([...prev, ...fromShifts]);
+      return [...merged];
+    });
+  }, [shifts]);
+
   const [showTeamPanel, setShowTeamPanel] = useState(false);
   const [showShiftPanel, setShowShiftPanel] = useState(false);
   const [shiftWorker, setShiftWorker] = useState<any>(null);
@@ -78,7 +98,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
   );
 
   const dayStats = weekDays.map((d) => {
-    const dayShifts = shifts.filter((s: any) => s.date === d.iso && s.status !== 'cancelled' && s.status !== 'refused');
+    const dayShifts = filteredShifts.filter((s: any) => s.date === d.iso && s.status !== 'cancelled' && s.status !== 'refused');
     let totalHours = 0;
     let totalCost = 0;
     const workerSet = new Set<string>();
@@ -100,7 +120,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
 
   const openShiftPanel = (worker: any, initialDay?: string) => {
     setShiftWorker(worker);
-    setShiftLocation(locations[0]?.id || '');
+    setShiftLocation(filterLocationId !== 'all' ? filterLocationId : locations[0]?.id || '');
     setShiftRole('polyvalent');
     const preset = PRESETS[0];
     if (initialDay) {
@@ -227,10 +247,30 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
             Aujourd&apos;hui
           </Link>
         </div>
-        <button onClick={() => { setSearchTerm(''); setShowTeamPanel(true); }}
-          className="bg-orange-500 hover:bg-orange-600 text-white px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap">
-          <Users size={16} /> <span className="hidden sm:inline">Ajouter à l&apos;équipe</span><span className="sm:hidden">Équipe</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Location filter */}
+          <div className="flex items-center bg-white border border-gray-200 rounded-xl overflow-hidden text-xs">
+            <button
+              onClick={() => setFilterLocationId('all')}
+              className={`px-3 py-2 font-medium transition-colors ${filterLocationId === 'all' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:bg-gray-50'}`}
+            >
+              Tous
+            </button>
+            {locations.map((l: any) => (
+              <button
+                key={l.id}
+                onClick={() => setFilterLocationId(l.id)}
+                className={`px-3 py-2 font-medium transition-colors border-l border-gray-200 ${filterLocationId === l.id ? 'bg-orange-500 text-white' : 'text-gray-500 hover:bg-gray-50'}`}
+              >
+                {l.name}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => { setSearchTerm(''); setShowTeamPanel(true); }}
+            className="bg-orange-500 hover:bg-orange-600 text-white px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap">
+            <Users size={16} /> <span className="hidden sm:inline">Ajouter à l&apos;équipe</span><span className="sm:hidden">Équipe</span>
+          </button>
+        </div>
       </div>
 
       {/* Grid */}
@@ -279,7 +319,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
 
               {/* Workers */}
               {teamWorkers.map((w: any) => {
-                const wShifts = shifts.filter((s: any) => s.worker_id === w.id);
+                const wShifts = filteredShifts.filter((s: any) => s.worker_id === w.id);
                 const wHours = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused')
                   .reduce((sum: number, s: any) => sum + calculateHours(s.start_time, s.end_time), 0);
                 const wCost = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused')
@@ -311,11 +351,17 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                             {cellShifts.map((s: any) => {
                               const st = STATUS_STYLES[s.status] || STATUS_STYLES.draft;
                               const h = calculateHours(s.start_time, s.end_time);
+                              const locName = s.locations?.name;
                               return (
                                 <div key={s.id} onClick={() => openEditPanel(s)}
                                   className={`${st.bg} border ${st.border} rounded-lg px-2 py-1.5 text-[10px] leading-tight group relative cursor-pointer hover:shadow-md transition-shadow`}>
                                   <div className={`font-bold ${st.text}`}>{s.role || 'Polyvalent'}</div>
                                   <div className="text-gray-500">{s.start_time?.slice(0, 5)} – {s.end_time?.slice(0, 5)} ({formatH(h)})</div>
+                                  {filterLocationId === 'all' && locName && (
+                                    <div className="text-gray-400 flex items-center gap-0.5 mt-0.5">
+                                      <MapPin size={8} />{locName}
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
