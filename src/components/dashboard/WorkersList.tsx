@@ -396,11 +396,28 @@ export default function WorkersList({ workers, locations }: Props) {
                         ? `${selectedWorker.address_street}, ${selectedWorker.address_zip || ''} ${selectedWorker.address_city || ''}`
                         : null
                     } />
-                    <InfoRow icon={<FileCheck size={14} />} label="Contrat-cadre" value={
-                      selectedWorker.framework_contract_date
-                        ? `Signé le ${new Date(selectedWorker.framework_contract_date).toLocaleDateString('fr-BE')}`
-                        : null
-                    } missing="Non signé" />
+                    {/* Contrat-cadre — with download link */}
+                    <div className="flex items-center gap-3 py-2.5 px-1 border-b border-gray-50">
+                      <div className="text-gray-300 flex-shrink-0"><FileCheck size={14} /></div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[11px] text-gray-400 font-medium">Contrat-cadre</div>
+                        {selectedWorker.framework_contract_date ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-emerald-600 font-medium">
+                              Signé le {new Date(selectedWorker.framework_contract_date).toLocaleDateString('fr-BE')}
+                            </span>
+                            {selectedWorker.framework_contract_url && (
+                              <a href={selectedWorker.framework_contract_url} target="_blank" rel="noopener noreferrer"
+                                className="text-[10px] px-2 py-0.5 bg-orange-50 text-orange-600 rounded-full hover:bg-orange-100 transition-colors font-medium">
+                                PDF ↗
+                              </a>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-red-400 italic">Non signé</div>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Gains section */}
