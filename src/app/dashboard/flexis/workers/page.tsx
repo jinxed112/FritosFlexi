@@ -10,5 +10,11 @@ export default async function DashboardWorkersPage() {
     .order('is_active', { ascending: false })
     .order('last_name');
 
-  return <WorkersList workers={workers || []} />;
+  const { data: locations } = await supabase
+    .from('locations')
+    .select('*')
+    .eq('is_active', true)
+    .order('name');
+
+  return <WorkersList workers={workers || []} locations={locations || []} />;
 }
