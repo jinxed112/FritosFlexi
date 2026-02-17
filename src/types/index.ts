@@ -22,6 +22,11 @@ export interface FlexiWorker {
   first_name: string;
   last_name: string;
   date_of_birth: string | null;
+  gender: 'M' | 'F' | null;
+  birth_place: string | null;
+  birth_country: string | null;
+  nationality: string | null;
+  middle_initial: string | null;
   niss: string | null;
   address_street: string | null;
   address_city: string | null;
@@ -195,6 +200,11 @@ export interface UpdateProfileInput {
   first_name?: string;
   last_name?: string;
   date_of_birth?: string;
+  gender?: 'M' | 'F';
+  birth_place?: string;
+  birth_country?: string;
+  nationality?: string;
+  middle_initial?: string;
   niss?: string;
   address_street?: string;
   address_city?: string;

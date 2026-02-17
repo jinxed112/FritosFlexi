@@ -41,6 +41,11 @@ export default function FlexiAccountPage() {
       first_name: fd.get('first_name') as string,
       last_name: fd.get('last_name') as string,
       date_of_birth: fd.get('date_of_birth') as string || undefined,
+      gender: fd.get('gender') as 'M' | 'F' || undefined,
+      birth_place: fd.get('birth_place') as string || undefined,
+      birth_country: fd.get('birth_country') as string || undefined,
+      nationality: fd.get('nationality') as string || undefined,
+      middle_initial: fd.get('middle_initial') as string || undefined,
       niss: fd.get('niss') as string || undefined,
       address_street: fd.get('address_street') as string || undefined,
       address_city: fd.get('address_city') as string || undefined,
@@ -119,6 +124,30 @@ export default function FlexiAccountPage() {
           <Field label="Nom" name="last_name" defaultValue={worker.last_name} required />
         </div>
         <Field label="Date de naissance" name="date_of_birth" type="date" defaultValue={worker.date_of_birth} required />
+
+        {/* Dimona fields */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Sexe *</label>
+            <div className="flex gap-4 px-3 py-2.5 rounded-xl border border-gray-200 bg-white">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="radio" name="gender" value="M" defaultChecked={worker.gender === 'M'}
+                  className="text-orange-500 focus:ring-orange-500" /> Homme
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="radio" name="gender" value="F" defaultChecked={worker.gender === 'F'}
+                  className="text-orange-500 focus:ring-orange-500" /> Femme
+              </label>
+            </div>
+          </div>
+          <Field label="Initiale 2e prénom" name="middle_initial" defaultValue={worker.middle_initial} placeholder="Ex: J" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Lieu de naissance" name="birth_place" defaultValue={worker.birth_place} placeholder="Ex: Mons" required />
+          <Field label="Pays de naissance" name="birth_country" defaultValue={worker.birth_country || 'Belgique'} required />
+        </div>
+        <Field label="Nationalité" name="nationality" defaultValue={worker.nationality || 'Belge'} required />
+
         <Field label="Registre national (NISS)" name="niss" defaultValue={worker.niss} placeholder="XX.XX.XX-XXX.XX" required />
         <Field label="Adresse (rue)" name="address_street" defaultValue={worker.address_street} required />
         <div className="grid grid-cols-3 gap-3">

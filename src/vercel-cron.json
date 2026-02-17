@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/dimona",
+      "schedule": "0 19 * * *"
+    }
+  ]
+}

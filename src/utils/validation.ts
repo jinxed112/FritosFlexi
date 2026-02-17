@@ -111,7 +111,8 @@ export function isProfileComplete(worker: {
  */
 export function profileCompletionCount(worker: Record<string, unknown>): { done: number; total: number } {
   const requiredFields = [
-    'first_name', 'last_name', 'date_of_birth', 'niss',
+    'first_name', 'last_name', 'date_of_birth', 'gender', 'niss',
+    'birth_place', 'birth_country', 'nationality',
     'address_street', 'address_city', 'address_zip',
     'phone', 'email', 'iban', 'status', 'framework_contract_date',
   ];

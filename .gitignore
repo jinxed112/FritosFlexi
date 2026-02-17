@@ -7,3 +7,8 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 .vercel
+
+# Dimona credentials - NEVER commit
+*.key
+*.pem
+get-dimona-token.js
