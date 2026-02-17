@@ -29,6 +29,7 @@ export default async function DashboardPlanningPage({ searchParams }: { searchPa
     .select('*, locations(name), flexi_workers(id, first_name, last_name, hourly_rate, status, profile_complete)')
     .gte('date', startISO)
     .lte('date', endISO)
+    .neq('status', 'cancelled')
     .order('start_time');
 
   const { data: locations } = await supabase
