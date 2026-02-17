@@ -3,6 +3,7 @@
 import { useState, useEffect, useTransition } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { updateProfile } from '@/lib/actions/workers';
+import { updatePinCode } from '@/lib/actions/clock';
 import { validateNISS, formatNISS, validateIBAN, formatIBAN, validatePhone, profileCompletionCount } from '@/utils/validation';
 import type { FlexiWorker, UpdateProfileInput } from '@/types';
 
@@ -172,8 +173,102 @@ export default function FlexiAccountPage() {
         </div>
       </div>
 
+      {/* PIN code for kiosk */}
+      <PinSection currentPin={worker.pin_code} />
+
       {/* Password change */}
       <PasswordChangeSection />
+    </div>
+  );
+}
+
+function PinSection({ currentPin }: { currentPin?: string | null }) {
+  const [open, setOpen] = useState(false);
+  const [pin, setPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [pinMsg, setPinMsg] = useState('');
+  const [pinLoading, setPinLoading] = useState(false);
+
+  const handleSetPin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinMsg('');
+
+    if (!/^\d{4}$/.test(pin)) {
+      setPinMsg('Le PIN doit contenir exactement 4 chiffres');
+      return;
+    }
+    if (pin !== confirmPin) {
+      setPinMsg('Les PINs ne correspondent pas');
+      return;
+    }
+
+    setPinLoading(true);
+    const result = await updatePinCode(pin);
+    if ('error' in result && result.error) {
+      setPinMsg(result.error);
+    } else {
+      setPinMsg('PIN enregistré ✓');
+      setPin('');
+      setConfirmPin('');
+      setTimeout(() => { setPinMsg(''); setOpen(false); }, 2000);
+    }
+    setPinLoading(false);
+  };
+
+  return (
+    <div className="mt-6 pt-4 border-t border-gray-100">
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <p className="text-sm font-medium text-gray-700">Code PIN de pointage</p>
+          <p className="text-xs text-gray-400">Pour pointer sur la borne de la friterie</p>
+        </div>
+        {currentPin ? (
+          <span className="text-xs px-2 py-1 rounded-full bg-emerald-50 text-emerald-600 font-medium">
+            Configuré ✓
+          </span>
+        ) : (
+          <span className="text-xs px-2 py-1 rounded-full bg-red-50 text-red-500 font-medium">
+            Non configuré
+          </span>
+        )}
+      </div>
+
+      <button
+        onClick={() => setOpen(!open)}
+        className="text-sm text-orange-500 hover:text-orange-600 transition-colors font-medium"
+      >
+        {open ? '▾' : '▸'} {currentPin ? 'Changer mon PIN' : 'Configurer mon PIN'}
+      </button>
+
+      {open && (
+        <form onSubmit={handleSetPin} className="mt-3 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Nouveau PIN (4 chiffres)</label>
+            <input type="password" inputMode="numeric" pattern="\d{4}" maxLength={4}
+              value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="••••"
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all text-sm text-center tracking-[0.5em] text-lg"
+              required />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Confirmer le PIN</label>
+            <input type="password" inputMode="numeric" pattern="\d{4}" maxLength={4}
+              value={confirmPin} onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="••••"
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all text-sm text-center tracking-[0.5em] text-lg"
+              required />
+          </div>
+          {pinMsg && (
+            <p className={`text-sm text-center py-2 rounded-lg ${pinMsg.includes('✓') ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+              {pinMsg}
+            </p>
+          )}
+          <button type="submit" disabled={pinLoading}
+            className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-2.5 font-medium text-sm transition-all disabled:opacity-50">
+            {pinLoading ? 'Enregistrement...' : 'Enregistrer le PIN'}
+          </button>
+        </form>
+      )}
     </div>
   );
 }

@@ -35,6 +35,8 @@ export interface FlexiWorker {
   ytd_earnings: number;
   id_card_url: string | null;
   framework_contract_date: string | null;
+  framework_contract_url: string | null;
+  pin_code: string | null;
   profile_complete: boolean;
   is_active: boolean;
   created_at: string;
