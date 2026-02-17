@@ -262,7 +262,7 @@ function cleanNiss(niss: string): string {
 }
 
 function formatHour(time: string): string {
-  return time.replace(':', '');
+  return time.replace(/[:.]/g, '').slice(0, 4);
 }
 
 function sleep(ms: number): Promise<void> {
