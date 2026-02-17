@@ -11,16 +11,20 @@ import type {
   DimonaUpdatePayload,
   DimonaDeclarationResponse,
   DimonaResult,
-  DimonaAction,
 } from './types';
 
 // --- Configuration ---
 const DIMONA_CONFIG = {
   // OAuth
   tokenUrl: 'https://services.socialsecurity.be/REST/oauth/v5/token',
-  clientId: process.env.DIMONA_CLIENT_ID!, // self_service_chaman_305369_32a2ocupdo
-  privateKey: process.env.DIMONA_PRIVATE_KEY!, // Contents of fritos-dimona.key (PEM)
-  certificate: process.env.DIMONA_CERTIFICATE!, // Contents of fritos-dimona.pem (PEM)
+  clientId: process.env.DIMONA_CLIENT_ID!,
+  // Fix Vercel: env vars with newlines get stored as literal \n
+  get privateKey() {
+    return (process.env.DIMONA_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+  },
+  get certificate() {
+    return (process.env.DIMONA_CERTIFICATE || '').replace(/\\n/g, '\n');
+  },
 
   // API
   baseUrl: process.env.DIMONA_API_URL || 'https://services.socialsecurity.be/REST/dimona/v2',
@@ -30,34 +34,26 @@ const DIMONA_CONFIG = {
 
   // Retry config (from ONSS documentation)
   retry: {
-    initialWaitMs: 2000,    // Don't poll before 2 seconds
-    pollIntervalMs: 1000,   // Poll every 1 second between 2-30s
-    maxPollTimeMs: 30000,   // Give up after 30 seconds
+    initialWaitMs: 2000,
+    pollIntervalMs: 1000,
+    maxPollTimeMs: 30000,
   },
 };
 
 // --- Token cache ---
 let cachedToken: DimonaToken | null = null;
 
-/**
- * Create a JWT assertion for OAuth2 client_credentials grant
- * See: Belgian Social Security OAuth v5 documentation
- */
 function createJwtAssertion(): string {
   const now = Math.floor(Date.now() / 1000);
 
-  const header = {
-    alg: 'RS256',
-    typ: 'JWT',
-  };
-
+  const header = { alg: 'RS256', typ: 'JWT' };
   const payload = {
     iss: DIMONA_CONFIG.clientId,
     sub: DIMONA_CONFIG.clientId,
     aud: 'https://services.socialsecurity.be/REST/oauth/v5/token',
     jti: crypto.randomUUID(),
     iat: now,
-    exp: now + 300, // 5 min validity
+    exp: now + 300,
   };
 
   const encode = (obj: object) =>
@@ -74,11 +70,7 @@ function createJwtAssertion(): string {
   return `${signingInput}.${signature}`;
 }
 
-/**
- * Get a valid OAuth2 bearer token, using cache if still valid
- */
 async function getToken(): Promise<string> {
-  // Check if cached token is still valid (with 60s margin)
   if (cachedToken && (Date.now() - cachedToken.obtained_at) < (cachedToken.expires_in - 60) * 1000) {
     return cachedToken.access_token;
   }
@@ -103,18 +95,11 @@ async function getToken(): Promise<string> {
   }
 
   const data = await response.json();
-  cachedToken = {
-    ...data,
-    obtained_at: Date.now(),
-  };
+  cachedToken = { ...data, obtained_at: Date.now() };
 
   return cachedToken!.access_token;
 }
 
-/**
- * POST a declaration to the Dimona API
- * Returns the declarationId from the Location header
- */
 async function postDeclaration(payload: DimonaInPayload | DimonaCancelPayload | DimonaUpdatePayload): Promise<number> {
   const token = await getToken();
 
@@ -128,20 +113,18 @@ async function postDeclaration(payload: DimonaInPayload | DimonaCancelPayload | 
   });
 
   if (response.status === 201) {
-    // declarationId is in the Location header
     const location = response.headers.get('Location');
     if (location) {
       const id = parseInt(location.split('/').pop() || '');
       if (!isNaN(id)) return id;
     }
-    // Fallback: try response body
     try {
       const body = await response.json();
       if (body?.declarationStatus?.declarationId) {
         return body.declarationStatus.declarationId;
       }
     } catch { /* ignore */ }
-    throw new Error('Dimona 201 but no declarationId found in response');
+    throw new Error('Dimona 201 but no declarationId found');
   }
 
   if (response.status === 400) {
@@ -153,18 +136,10 @@ async function postDeclaration(payload: DimonaInPayload | DimonaCancelPayload | 
   throw new Error(`Dimona API error ${response.status}: ${text}`);
 }
 
-/**
- * GET declaration status with retry mechanism
- * Follows ONSS-recommended polling schedule:
- * - 0-2s: no calls
- * - 2-30s: every 1 second
- * - 30s+: give up (return last known status)
- */
 async function pollDeclarationResult(declarationId: number): Promise<DimonaDeclarationResponse> {
   const token = await getToken();
   const { initialWaitMs, pollIntervalMs, maxPollTimeMs } = DIMONA_CONFIG.retry;
 
-  // Wait initial 2 seconds (ONSS says no declaration processed in < 2s)
   await sleep(initialWaitMs);
 
   const startTime = Date.now();
@@ -177,34 +152,29 @@ async function pollDeclarationResult(declarationId: number): Promise<DimonaDecla
     if (response.status === 200) {
       const data: DimonaDeclarationResponse = await response.json();
       if (data.declarationStatus?.result) {
-        return data; // Got a final result
+        return data;
       }
     }
 
     if (response.status === 404) {
-      // Still processing, wait and retry
       await sleep(pollIntervalMs);
       continue;
     }
 
-    // Unexpected error
     const text = await response.text();
     throw new Error(`Dimona GET error ${response.status}: ${text}`);
   }
 
-  throw new Error(`Dimona declaration ${declarationId}: timeout after ${maxPollTimeMs}ms - still processing`);
+  throw new Error(`Dimona ${declarationId}: timeout after ${maxPollTimeMs}ms`);
 }
 
 // --- Public API ---
 
-/**
- * Send a Dimona-In declaration for a flexi-job shift
- */
 export async function sendDimonaIn(
   workerNiss: string,
-  date: string,         // "2026-02-21"
-  startTime: string,    // "17:00" or "1700"
-  endTime: string,      // "21:30" or "2130"
+  date: string,
+  startTime: string,
+  endTime: string,
 ): Promise<DimonaResult> {
   try {
     const payload: DimonaInPayload = {
@@ -213,12 +183,9 @@ export async function sendDimonaIn(
       dimonaIn: {
         startDate: date,
         startHour: formatHour(startTime),
-        endDate: date, // Flexi shifts are always same day
+        endDate: date,
         endHour: formatHour(endTime),
-        features: {
-          workerType: 'FLX',
-          jointCommissionNumber: 'XXX',
-        },
+        features: { workerType: 'FLX', jointCommissionNumber: 'XXX' },
       },
     };
 
@@ -233,17 +200,10 @@ export async function sendDimonaIn(
       anomalies: result.declarationStatus.anomalies,
     };
   } catch (error: any) {
-    return {
-      success: false,
-      error: error.message,
-    };
+    return { success: false, error: error.message };
   }
 }
 
-/**
- * Cancel a Dimona declaration (worker didn't show up or shift cancelled)
- * Requires the periodId from a previously accepted Dimona-In
- */
 export async function sendDimonaCancel(periodId: number): Promise<DimonaResult> {
   try {
     const payload: DimonaCancelPayload = {
@@ -260,17 +220,10 @@ export async function sendDimonaCancel(periodId: number): Promise<DimonaResult> 
       anomalies: result.declarationStatus.anomalies,
     };
   } catch (error: any) {
-    return {
-      success: false,
-      error: error.message,
-    };
+    return { success: false, error: error.message };
   }
 }
 
-/**
- * Update a Dimona declaration (change start/end times)
- * Requires the periodId from a previously accepted Dimona-In
- */
 export async function sendDimonaUpdate(
   periodId: number,
   date: string,
@@ -298,21 +251,17 @@ export async function sendDimonaUpdate(
       anomalies: result.declarationStatus.anomalies,
     };
   } catch (error: any) {
-    return {
-      success: false,
-      error: error.message,
-    };
+    return { success: false, error: error.message };
   }
 }
 
-// --- Utility functions ---
+// --- Utilities ---
 
 function cleanNiss(niss: string): string {
   return niss.replace(/[\.\-\s]/g, '');
 }
 
 function formatHour(time: string): string {
-  // Accept "17:00" or "1700" → return "1700"
   return time.replace(':', '');
 }
 
