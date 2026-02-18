@@ -2,12 +2,16 @@
 
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
-import type { ClockInput } from '@/types';
+import { verifyPin } from '@/lib/actions/verify-pin';
 
 /**
- * Clock IN for a shift (authenticated flexi — original)
+ * Clock IN — authenticated user (from flexi portal)
  */
-export async function clockIn(input: ClockInput) {
+export async function clockIn(input: {
+  shift_id: string;
+  latitude?: number;
+  longitude?: number;
+}) {
   const supabase = createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
@@ -20,26 +24,6 @@ export async function clockIn(input: ClockInput) {
     .single();
 
   if (!worker) return { error: 'Profil worker introuvable' };
-
-  const { data: shift } = await supabase
-    .from('shifts')
-    .select('*, locations(*)')
-    .eq('id', input.shift_id)
-    .eq('worker_id', worker.id)
-    .eq('status', 'accepted')
-    .single();
-
-  if (!shift) return { error: 'Shift introuvable ou non accepté' };
-
-  const { data: existing } = await supabase
-    .from('time_entries')
-    .select('id')
-    .eq('shift_id', input.shift_id)
-    .eq('worker_id', worker.id)
-    .is('clock_out', null)
-    .maybeSingle();
-
-  if (existing) return { error: 'Vous êtes déjà pointé pour ce shift' };
 
   const { data, error } = await supabase
     .from('time_entries')
@@ -62,9 +46,13 @@ export async function clockIn(input: ClockInput) {
 }
 
 /**
- * Clock OUT for a shift (authenticated flexi — original)
+ * Clock OUT — authenticated user (from flexi portal)
  */
-export async function clockOut(input: ClockInput) {
+export async function clockOut(input: {
+  shift_id: string;
+  latitude?: number;
+  longitude?: number;
+}) {
   const supabase = createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
@@ -110,7 +98,7 @@ export async function clockOut(input: ClockInput) {
 
 /**
  * KIOSK Clock IN — PIN-based, no auth required
- * Used from /pointage/:token page
+ * Uses verifyPin with rate limiting
  */
 export async function kioskClockIn(input: {
   worker_id: string;
@@ -130,17 +118,9 @@ export async function kioskClockIn(input: {
 
   if (!location) return { error: 'Location invalide' };
 
-  // Verify worker and PIN
-  const { data: worker } = await admin
-    .from('flexi_workers')
-    .select('id, first_name, last_name, pin_code')
-    .eq('id', input.worker_id)
-    .eq('is_active', true)
-    .single();
-
-  if (!worker) return { error: 'Worker introuvable' };
-  if (!worker.pin_code) return { error: 'Aucun PIN configuré. Configurez votre PIN dans votre profil.' };
-  if (worker.pin_code !== input.pin) return { error: 'PIN incorrect' };
+  // Verify PIN with rate limiting
+  const pinResult = await verifyPin(input.worker_id, input.pin);
+  if (!pinResult.success) return { error: pinResult.error };
 
   // Verify shift
   const { data: shift } = await admin
@@ -180,11 +160,12 @@ export async function kioskClockIn(input: {
   if (error) return { error: error.message };
 
   revalidatePath('/dashboard/flexis/live');
-  return { data, worker_name: `${worker.first_name} ${worker.last_name}` };
+  return { data, worker_name: `${pinResult.worker.first_name} ${pinResult.worker.last_name}` };
 }
 
 /**
  * KIOSK Clock OUT — PIN-based, no auth required
+ * Uses verifyPin with rate limiting
  */
 export async function kioskClockOut(input: {
   worker_id: string;
@@ -204,15 +185,9 @@ export async function kioskClockOut(input: {
 
   if (!location) return { error: 'Location invalide' };
 
-  // Verify worker and PIN
-  const { data: worker } = await admin
-    .from('flexi_workers')
-    .select('id, first_name, last_name, pin_code')
-    .eq('id', input.worker_id)
-    .single();
-
-  if (!worker) return { error: 'Worker introuvable' };
-  if (worker.pin_code !== input.pin) return { error: 'PIN incorrect' };
+  // Verify PIN with rate limiting
+  const pinResult = await verifyPin(input.worker_id, input.pin);
+  if (!pinResult.success) return { error: pinResult.error };
 
   // Find active entry
   const { data: entry } = await admin
@@ -221,21 +196,21 @@ export async function kioskClockOut(input: {
     .eq('shift_id', input.shift_id)
     .eq('worker_id', input.worker_id)
     .is('clock_out', null)
-    .single();
+    .maybeSingle();
 
-  if (!entry) return { error: 'Aucun pointage actif' };
+  if (!entry) return { error: 'Aucun pointage actif trouvé' };
 
-  const clockOut = new Date().toISOString();
-  const clockInTime = new Date(entry.clock_in).getTime();
-  const clockOutTime = new Date(clockOut).getTime();
-  const actualHours = Math.round(((clockOutTime - clockInTime) / 3600000) * 100) / 100;
+  // Clock out
+  const clockOut = new Date();
+  const clockIn = new Date(entry.clock_in);
+  const hoursWorked = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60);
 
   const { data, error } = await admin
     .from('time_entries')
     .update({
-      clock_out: clockOut,
+      clock_out: clockOut.toISOString(),
       geo_valid_out: true,
-      actual_hours: actualHours,
+      actual_hours: Math.round(hoursWorked * 100) / 100,
     })
     .eq('id', entry.id)
     .select()
@@ -245,64 +220,7 @@ export async function kioskClockOut(input: {
 
   revalidatePath('/dashboard/flexis/live');
   revalidatePath('/dashboard/flexis/validation');
-  return { data, worker_name: `${worker.first_name} ${worker.last_name}`, hours: actualHours };
-}
-
-/**
- * Manual clock by manager (override)
- */
-export async function manualClock(
-  shiftId: string,
-  workerId: string,
-  type: 'in' | 'out'
-) {
-  const supabase = createClient();
-
-  if (type === 'in') {
-    const { data, error } = await supabase
-      .from('time_entries')
-      .insert({
-        shift_id: shiftId,
-        worker_id: workerId,
-        clock_in: new Date().toISOString(),
-        geo_valid_in: true,
-      })
-      .select()
-      .single();
-
-    if (error) return { error: error.message };
-    revalidatePath('/dashboard/flexis/live');
-    return { data };
-  } else {
-    const { data: entry } = await supabase
-      .from('time_entries')
-      .select('id, clock_in')
-      .eq('shift_id', shiftId)
-      .eq('worker_id', workerId)
-      .is('clock_out', null)
-      .single();
-
-    if (!entry) return { error: 'Aucun pointage actif' };
-
-    const clockOut = new Date().toISOString();
-    const actualHours = Math.round(((new Date(clockOut).getTime() - new Date(entry.clock_in).getTime()) / 3600000) * 100) / 100;
-
-    const { data, error } = await supabase
-      .from('time_entries')
-      .update({
-        clock_out: clockOut,
-        geo_valid_out: true,
-        actual_hours: actualHours,
-      })
-      .eq('id', entry.id)
-      .select()
-      .single();
-
-    if (error) return { error: error.message };
-    revalidatePath('/dashboard/flexis/live');
-    revalidatePath('/dashboard/flexis/validation');
-    return { data };
-  }
+  return { data, worker_name: `${pinResult.worker.first_name} ${pinResult.worker.last_name}`, hours: hoursWorked };
 }
 
 /**
