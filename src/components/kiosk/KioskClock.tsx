@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { kioskClockIn, kioskClockOut } from '@/lib/actions/clock';
+import { checkStudentContract } from '@/lib/actions/contract';
+import StudentContractModal from '@/components/flexi/StudentContractModal';
 import { Clock, ArrowLeft, Check, X, Delete } from 'lucide-react';
 
 interface Props {
@@ -19,6 +21,12 @@ export default function KioskClock({ locationToken, locationName, locationId }: 
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [processing, setProcessing] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Student contract state
+  const [showStudentContract, setShowStudentContract] = useState(false);
+  const [studentContractData, setStudentContractData] = useState<any>(null);
+  const [pendingClockIn, setPendingClockIn] = useState<{ worker_id: string; shift_id: string; pin: string } | null>(null);
+
   const supabase = createClient();
 
   // Update clock every second
@@ -94,16 +102,12 @@ export default function KioskClock({ locationToken, locationName, locationId }: 
 
   const deleteDigit = () => setPin((p) => p.slice(0, -1));
 
-  const handleSubmitPin = async () => {
-    if (pin.length !== 4 || !selectedWorker) return;
-    setProcessing(true);
-    setMessage(null);
-
-    const action = selectedWorker.is_clocked_in ? kioskClockOut : kioskClockIn;
-    const result = await action({
-      worker_id: selectedWorker.worker_id,
-      shift_id: selectedWorker.shift_id,
-      pin,
+  // Execute the actual clock-in (called directly or after student contract)
+  const executeClockIn = async (workerId: string, shiftId: string, pinCode: string) => {
+    const result = await kioskClockIn({
+      worker_id: workerId,
+      shift_id: shiftId,
+      pin: pinCode,
       location_token: locationToken,
     });
 
@@ -111,13 +115,7 @@ export default function KioskClock({ locationToken, locationName, locationId }: 
       setMessage({ type: 'error', text: result.error });
       setPin('');
     } else {
-      const actionLabel = selectedWorker.is_clocked_in ? 'Départ enregistré' : 'Arrivée enregistrée';
-      const hoursLabel = 'hours' in result && result.hours
-        ? ` — ${result.hours.toFixed(1)}h travaillées`
-        : '';
-      setMessage({ type: 'success', text: `${actionLabel} pour ${result.worker_name}${hoursLabel}` });
-
-      // After success, go back to list after delay
+      setMessage({ type: 'success', text: `Arrivée enregistrée pour ${result.worker_name}` });
       setTimeout(() => {
         setSelectedWorker(null);
         setPin('');
@@ -125,7 +123,80 @@ export default function KioskClock({ locationToken, locationName, locationId }: 
         loadWorkers();
       }, 3000);
     }
+  };
+
+  const handleSubmitPin = async () => {
+    if (pin.length !== 4 || !selectedWorker) return;
+    setProcessing(true);
+    setMessage(null);
+
+    // CLOCK OUT — no contract needed
+    if (selectedWorker.is_clocked_in) {
+      const result = await kioskClockOut({
+        worker_id: selectedWorker.worker_id,
+        shift_id: selectedWorker.shift_id,
+        pin,
+        location_token: locationToken,
+      });
+
+      if ('error' in result && result.error) {
+        setMessage({ type: 'error', text: result.error });
+        setPin('');
+      } else {
+        const hoursLabel = 'hours' in result && result.hours
+          ? ` — ${result.hours.toFixed(1)}h travaillées`
+          : '';
+        setMessage({ type: 'success', text: `Départ enregistré pour ${result.worker_name}${hoursLabel}` });
+        setTimeout(() => {
+          setSelectedWorker(null);
+          setPin('');
+          setMessage(null);
+          loadWorkers();
+        }, 3000);
+      }
+      setProcessing(false);
+      return;
+    }
+
+    // CLOCK IN — check student contract first
+    const check = await checkStudentContract(selectedWorker.shift_id);
+
+    if (check.needed) {
+      // Student needs to sign → show modal, save pending clock-in
+      setStudentContractData(check.contractData);
+      setPendingClockIn({
+        worker_id: selectedWorker.worker_id,
+        shift_id: selectedWorker.shift_id,
+        pin,
+      });
+      setShowStudentContract(true);
+      setProcessing(false);
+      return;
+    }
+
+    // Not a student or already signed → clock in directly
+    await executeClockIn(selectedWorker.worker_id, selectedWorker.shift_id, pin);
     setProcessing(false);
+  };
+
+  // After student signs contract → proceed with clock-in
+  const handleStudentContractSigned = async () => {
+    setShowStudentContract(false);
+    setStudentContractData(null);
+
+    if (pendingClockIn) {
+      setProcessing(true);
+      await executeClockIn(pendingClockIn.worker_id, pendingClockIn.shift_id, pendingClockIn.pin);
+      setPendingClockIn(null);
+      setProcessing(false);
+    }
+  };
+
+  const handleStudentContractCancel = () => {
+    setShowStudentContract(false);
+    setStudentContractData(null);
+    setPendingClockIn(null);
+    setPin('');
   };
 
   // Auto-submit when 4 digits entered
@@ -141,6 +212,17 @@ export default function KioskClock({ locationToken, locationName, locationId }: 
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="w-10 h-10 border-3 border-orange-500 border-t-transparent rounded-full animate-spin" />
       </div>
+    );
+  }
+
+  // ===== STUDENT CONTRACT MODAL =====
+  if (showStudentContract && studentContractData) {
+    return (
+      <StudentContractModal
+        contractData={studentContractData}
+        onSigned={handleStudentContractSigned}
+        onCancel={handleStudentContractCancel}
+      />
     );
   }
 
@@ -172,7 +254,7 @@ export default function KioskClock({ locationToken, locationName, locationId }: 
           </div>
           <h2 className="text-xl font-bold mb-1">{selectedWorker.first_name} {selectedWorker.last_name}</h2>
           <p className="text-sm text-gray-400 mb-1">
-            {selectedWorker.start_time?.slice(0, 5)} — {selectedWorker.end_time?.slice(0, 5)}
+            {selectedWorker.start_time?.slice(0, 5)} – {selectedWorker.end_time?.slice(0, 5)}
           </p>
           <p className={`text-lg font-bold mb-8 ${isClockedIn ? 'text-red-400' : 'text-emerald-400'}`}>
             {isClockedIn ? '👋 Départ' : '✅ Arrivée'}
@@ -185,7 +267,7 @@ export default function KioskClock({ locationToken, locationName, locationId }: 
                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                 : 'bg-red-500/20 text-red-300 border border-red-500/30'
             }`}>
-              <div className="text-2xl mb-1">{message.type === 'success' ? '✓' : '✗'}</div>
+              <div className="text-2xl mb-1">{message.type === 'success' ? '✔' : '✗'}</div>
               {message.text}
             </div>
           )}
@@ -254,7 +336,7 @@ export default function KioskClock({ locationToken, locationName, locationId }: 
         ) : (
           <>
             <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-3 px-1">
-              Équipe du jour — {workers.length} personne{workers.length > 1 ? 's' : ''}
+              Équipe du jour – {workers.length} personne{workers.length > 1 ? 's' : ''}
             </p>
             <div className="space-y-2">
               {workers.map((w) => {
@@ -288,7 +370,7 @@ export default function KioskClock({ locationToken, locationName, locationId }: 
                     <div className="flex-1 text-left min-w-0">
                       <div className="font-bold text-base truncate">{w.first_name} {w.last_name}</div>
                       <div className="text-sm text-gray-400">
-                        {w.start_time?.slice(0, 5)} — {w.end_time?.slice(0, 5)}
+                        {w.start_time?.slice(0, 5)} – {w.end_time?.slice(0, 5)}
                         {w.role !== 'polyvalent' && ` · ${w.role}`}
                       </div>
                     </div>

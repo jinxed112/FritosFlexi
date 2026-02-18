@@ -5,9 +5,41 @@ import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 
+// ============================================================
+// Shared PDF helpers
+// ============================================================
+
+function drawWrapped(
+  page: any, text: string, x: number, startY: number,
+  maxW: number, size: number, f: any, color: any
+): number {
+  let y = startY;
+  const words = text.split(' ');
+  let line = '';
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (f.widthOfTextAtSize(test, size) > maxW) {
+      page.drawText(line, { x, y, size, font: f, color });
+      y -= size + 4;
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) {
+    page.drawText(line, { x, y, size, font: f, color });
+    y -= size + 4;
+  }
+  return y;
+}
+
+// ============================================================
+// CONTRAT-CADRE FLEXI-JOB (Modèle Partena CNT 13)
+// ============================================================
+
 /**
- * Sign the framework contract (contrat-cadre)
- * Generates a signed PDF with signature image + metadata, uploads to Supabase Storage
+ * Sign the framework contract (contrat-cadre flexi-job)
+ * Based on Partena CNT 13 template, updated 01.01.2026
  */
 export async function signFrameworkContract(signatureBase64: string) {
   const supabase = createClient();
@@ -44,53 +76,30 @@ export async function signFrameworkContract(signatureBase64: string) {
     const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
     const fontItalic = await pdf.embedFont(StandardFonts.HelveticaOblique);
 
-    const W = 595; // A4
-    const H = 842;
-    const M = 50;
-    const TW = W - M * 2;
-
-    // Helper: draw wrapped text, returns new Y position
-    function drawWrapped(page: any, text: string, x: number, startY: number, maxW: number, size: number, f: any, color: any): number {
-      let y = startY;
-      const words = text.split(' ');
-      let line = '';
-      for (const word of words) {
-        const test = line ? `${line} ${word}` : word;
-        if (f.widthOfTextAtSize(test, size) > maxW) {
-          page.drawText(line, { x, y, size, font: f, color });
-          y -= size + 4;
-          line = word;
-        } else {
-          line = test;
-        }
-      }
-      if (line) {
-        page.drawText(line, { x, y, size, font: f, color });
-        y -= size + 4;
-      }
-      return y;
-    }
-
-    // ---- PAGE 1: Contract ----
-    let page = pdf.addPage([W, H]);
-    let y = H - M;
+    const W = 595; const H = 842; const M = 50; const TW = W - M * 2;
     const dark = rgb(0.15, 0.15, 0.15);
     const gray = rgb(0.35, 0.35, 0.35);
     const light = rgb(0.55, 0.55, 0.55);
 
-    page.drawText('CONTRAT-CADRE FLEXI-JOB', { x: M, y, size: 18, font: fontBold, color: dark });
-    y -= 22;
+    // ---- PAGE 1: Contract ----
+    let page = pdf.addPage([W, H]);
+    let y = H - M;
+
+    page.drawText('CONTRAT-CADRE POUR LA CONCLUSION', { x: M, y, size: 15, font: fontBold, color: dark });
+    y -= 20;
+    page.drawText("D'UN CONTRAT DE TRAVAIL FLEXI-JOB", { x: M, y, size: 15, font: fontBold, color: dark });
+    y -= 18;
     page.drawText('Commission Paritaire 302 — Horeca', { x: M, y, size: 10, font: fontItalic, color: light });
-    y -= 35;
+    y -= 30;
 
     // Employer
-    page.drawText('ENTRE', { x: M, y, size: 11, font: fontBold, color: gray });
+    page.drawText('Entre', { x: M, y, size: 11, font: fontBold, color: gray });
     y -= 18;
     const empLines = [
-      'L\'employeur :',
-      'S.B.U.R.G.S. SRL (nom commercial : MDjambo)',
-      'Lieux d\'exploitation : MDjambo Jurbise et MDjambo Boussu',
-      'Représenté par : Michele Djambo, gérant',
+      'S.B.U.R.G.S. SRL, employeur',
+      'Rue de Mons 2, 7050 Jurbise',
+      'BCE : 1009.237.290 — ONSS : 1009.237.290',
+      'Représenté par Michele Terrana, gérant',
     ];
     for (const l of empLines) {
       page.drawText(l, { x: M + 10, y, size: 10, font, color: dark });
@@ -99,7 +108,7 @@ export async function signFrameworkContract(signatureBase64: string) {
     y -= 10;
 
     // Worker
-    page.drawText('ET', { x: M, y, size: 11, font: fontBold, color: gray });
+    page.drawText('et', { x: M, y, size: 11, font: fontBold, color: gray });
     y -= 18;
     const dob = worker.date_of_birth
       ? new Date(worker.date_of_birth).toLocaleDateString('fr-BE')
@@ -108,12 +117,10 @@ export async function signFrameworkContract(signatureBase64: string) {
       ? `${worker.address_street}, ${worker.address_zip || ''} ${worker.address_city || ''}`
       : 'non renseigné';
     const wrkLines = [
-      'Le travailleur flexi-job :',
-      `Nom : ${worker.last_name || '—'}    Prénom : ${worker.first_name || '—'}`,
-      `Date de naissance : ${dob}`,
-      `NISS : ${worker.niss || 'non renseigné'}`,
+      `${worker.first_name} ${worker.last_name}, travailleur`,
       `Adresse : ${addr}`,
-      `Email : ${worker.email}`,
+      `Né(e) le : ${dob}`,
+      `NISS : ${worker.niss || 'non renseigné'}`,
     ];
     for (const l of wrkLines) {
       page.drawText(l, { x: M + 10, y, size: 10, font, color: dark });
@@ -121,18 +128,39 @@ export async function signFrameworkContract(signatureBase64: string) {
     }
     y -= 15;
 
-    page.drawText('IL EST CONVENU CE QUI SUIT :', { x: M, y, size: 11, font: fontBold, color: gray });
+    page.drawText('Il est convenu ce qui suit :', { x: M, y, size: 11, font: fontBold, color: gray });
     y -= 22;
 
-    // Articles
+    // Articles conformes au modèle Partena CNT 13
     const articles = [
-      { t: 'Article 1 — Objet', b: 'Le présent contrat-cadre est conclu dans le cadre de la réglementation relative aux flexi-jobs (Loi du 16 novembre 2015, modifiée). Il définit les conditions générales dans lesquelles le travailleur pourra effectuer des prestations de travail pour l\'employeur.' },
-      { t: 'Article 2 — Fonction et lieux de travail', b: 'Le travailleur exercera la fonction de collaborateur polyvalent en restauration rapide (friterie). Les prestations peuvent avoir lieu dans l\'un ou l\'autre des établissements : MDjambo Jurbise et MDjambo Boussu.' },
-      { t: 'Article 3 — Rémunération', b: `Le flexi-salaire horaire est fixé à ${worker.hourly_rate || '12,53'} EUR brut/net (pécule de vacances de 7,67% inclus), conformément au minimum sectoriel CP 302. Ce salaire est exonéré d'impôt et de cotisations sociales personnelles. Prime dimanche/jour férié : 2 EUR/h (max 12 EUR/jour).` },
-      { t: 'Article 4 — Horaires et planning', b: 'Les horaires de travail seront communiqués via la plateforme FritOS Flexi. Le travailleur est libre d\'accepter ou de refuser chaque mission proposée. Chaque prestation acceptée fera l\'objet d\'une déclaration Dimona préalable auprès de l\'ONSS.' },
-      { t: 'Article 5 — Obligations du travailleur', b: 'Le travailleur s\'engage à : se présenter aux heures convenues, pointer son arrivée et son départ via le système de pointage, respecter les règles d\'hygiène et de sécurité alimentaire, signaler toute indisponibilité dans les meilleurs délais.' },
-      { t: 'Article 6 — Plafond fiscal', b: 'Les revenus flexi-job sont exonérés d\'impôt jusqu\'à 18 000 EUR par an (sauf pensionnés, illimité). Au-delà, les revenus sont imposés normalement. Le travailleur est responsable du suivi de son compteur via mycareer.be.' },
-      { t: 'Article 7 — Durée et résiliation', b: 'Le présent contrat-cadre est conclu pour une durée indéterminée. Il peut être résilié par l\'une ou l\'autre partie moyennant un préavis écrit.' },
+      {
+        t: 'Article 1 — Objet',
+        b: "Chacune des parties exprime, par le présent contrat-cadre, son intention de conclure un ou plusieurs contrat(s) de travail flexi-job. Le présent contrat-cadre ne contraint pas les parties à conclure effectivement un contrat de travail flexi-job et ne crée aucun droit dans leur chef.",
+      },
+      {
+        t: 'Article 2 — Durée',
+        b: `Le présent contrat-cadre est conclu pour une durée indéterminée à partir du ${new Date(dateISO).toLocaleDateString('fr-BE')}.`,
+      },
+      {
+        t: 'Article 3 — Proposition de contrat',
+        b: "L'employeur propose au travailleur un contrat de travail flexi-job via le portail FritOS Flexi (fritos-flexi.vercel.app), par notification sur le portail du travailleur, dans un délai minimum de 24 heures avant le début de l'exécution du contrat de travail flexi-job. La proposition précisera la date, le lieu (Jurbise ou Boussu), l'horaire et la fonction.",
+      },
+      {
+        t: 'Article 4 — Acceptation ou refus',
+        b: "La proposition de contrat de travail flexi-job faite par l'employeur est acceptée ou refusée par le travailleur via le portail FritOS Flexi dans un délai de 24 heures à compter de la réception de la proposition. L'acceptation sur le portail vaut accord du travailleur.",
+      },
+      {
+        t: 'Article 5 — Fonction',
+        b: "Dans le cadre de l'exécution du contrat de travail flexi-job, le travailleur assumera la fonction de polyvalent en restauration rapide (préparation, service, caisse, nettoyage) au sein des établissements MDjambo Jurbise (Rue de Mons 2, 7050 Jurbise) et MDjambo Boussu (adresse Boussu).",
+      },
+      {
+        t: 'Article 6 — Rémunération',
+        b: `A la date du présent contrat-cadre, le salaire de base convenu est fixé à ${worker.hourly_rate || '12,53'} EUR nets de l'heure (minimum horeca CP 302, pécule de vacances 7,67% inclus). Ce montant sera adapté conformément aux indexations légales. Ne sont pas compris les éventuelles primes dimanche/jour férié (+2 EUR/h, max 12 EUR/jour). Le montant du flexisalaire est fixé conformément aux dispositions de l'article 5 de la loi du 16 novembre 2015.`,
+      },
+      {
+        t: 'Article 7 — Conditions légales',
+        b: "Le travailleur déclare satisfaire aux conditions légales pour exercer un flexi-job. Une occupation dans le cadre d'un flexi-job est uniquement possible lorsque le travailleur salarié a déjà, chez un ou plusieurs autre(s) employeur(s), une occupation égale au minimum à 4/5e d'un emploi à temps plein durant le trimestre de référence T-3. Cette condition n'est pas d'application pour les pensionnés.",
+      },
     ];
 
     for (const art of articles) {
@@ -140,9 +168,10 @@ export async function signFrameworkContract(signatureBase64: string) {
         page = pdf.addPage([W, H]);
         y = H - M;
       }
-      page.drawText(art.t, { x: M, y, size: 10, font: fontBold, color: dark });
+      const targetPage = pdf.getPages()[pdf.getPageCount() - 1];
+      targetPage.drawText(art.t, { x: M, y, size: 10, font: fontBold, color: dark });
       y -= 15;
-      y = drawWrapped(page, art.b, M + 10, y, TW - 10, 9, font, gray);
+      y = drawWrapped(targetPage, art.b, M + 10, y, TW - 10, 9, font, gray);
       y -= 10;
     }
 
@@ -154,7 +183,7 @@ export async function signFrameworkContract(signatureBase64: string) {
     sy -= 28;
 
     sy = drawWrapped(sigPage,
-      'Le travailleur déclare avoir pris connaissance de l\'intégralité du présent contrat-cadre et en accepter les termes.',
+      "Fait en deux exemplaires. Le travailleur déclare avoir pris connaissance de l'intégralité du présent contrat-cadre et en accepter les termes.",
       M, sy, TW, 10, font, gray
     );
     sy -= 25;
@@ -169,7 +198,7 @@ export async function signFrameworkContract(signatureBase64: string) {
         const sigW = Math.min(sigDims.width, 280);
         const sigH = (sigW / sigDims.width) * sigDims.height;
 
-        sigPage.drawText('Signature :', { x: M, y: sy, size: 10, font: fontBold, color: dark });
+        sigPage.drawText('Signature du travailleur :', { x: M, y: sy, size: 10, font: fontBold, color: dark });
         sy -= 8;
 
         sigPage.drawRectangle({
@@ -209,6 +238,10 @@ export async function signFrameworkContract(signatureBase64: string) {
     sigPage.drawText('flexi-job entre S.B.U.R.G.S. SRL et le travailleur identifié ci-dessus.', {
       x: M, y: sy, size: 8, font: fontItalic, color: light,
     });
+    sy -= 11;
+    sigPage.drawText('Modèle conforme au CNT 13 — Partena Professional — Mis à jour au 01.01.2026', {
+      x: M, y: sy, size: 7, font: fontItalic, color: light,
+    });
 
     // Footer all pages
     const pages = pdf.getPages();
@@ -235,7 +268,6 @@ export async function signFrameworkContract(signatureBase64: string) {
       return { error: `Erreur upload : ${uploadError.message}` };
     }
 
-    // Signed URL (10 years)
     const { data: urlData } = await admin.storage
       .from('contracts')
       .createSignedUrl(fileName, 60 * 60 * 24 * 365 * 10);
@@ -263,4 +295,379 @@ export async function signFrameworkContract(signatureBase64: string) {
     console.error('Contract signing error:', err);
     return { error: `Erreur : ${err.message}` };
   }
+}
+
+
+// ============================================================
+// CONTRAT ÉTUDIANT JOURNALIER (Modèle Partena CNT 6)
+// ============================================================
+
+/**
+ * Check if a student needs to sign a daily contract before clocking in
+ */
+export async function checkStudentContract(shiftId: string) {
+  const supabase = createClient();
+
+  const { data: shift } = await supabase
+    .from('shifts')
+    .select(`
+      id, date, start_time, end_time, location_id,
+      flexi_workers!inner(id, first_name, last_name, status, niss,
+        date_of_birth, address_street, address_city, address_zip,
+        hourly_rate, iban),
+      locations!inner(id, name, address)
+    `)
+    .eq('id', shiftId)
+    .single();
+
+  if (!shift) return { needed: false };
+
+  // Only students need daily contracts
+  if (shift.flexi_workers.status !== 'student') {
+    return { needed: false };
+  }
+
+  // Check if already signed
+  const { data: existing } = await supabase
+    .from('student_contracts')
+    .select('id')
+    .eq('shift_id', shiftId)
+    .maybeSingle();
+
+  if (existing) {
+    return { needed: false, alreadySigned: true };
+  }
+
+  const w = shift.flexi_workers;
+  return {
+    needed: true,
+    contractData: {
+      shiftId: shift.id,
+      workerId: w.id,
+      locationId: shift.location_id,
+      workerName: `${w.first_name} ${w.last_name}`,
+      workerDob: w.date_of_birth,
+      workerNiss: w.niss,
+      workerAddress: [w.address_street, w.address_zip, w.address_city].filter(Boolean).join(', '),
+      workerIban: w.iban || '',
+      hourlyRate: w.hourly_rate || 12.53,
+      shiftDate: shift.date,
+      startTime: shift.start_time?.slice(0, 5),
+      endTime: shift.end_time?.slice(0, 5),
+      locationName: shift.locations.name,
+      locationAddress: shift.locations.address,
+    },
+  };
+}
+
+/**
+ * Sign student contract + generate PDF proof
+ * Based on Partena CNT 6 template, updated 01.01.2026
+ */
+export async function signStudentContract(data: {
+  shiftId: string;
+  workerId: string;
+  locationId: string;
+  contractDate: string;
+  startTime: string;
+  endTime: string;
+  hourlyRate: number;
+  geoLat?: number;
+  geoLng?: number;
+  userAgent?: string;
+}) {
+  const supabase = createClient();
+  const admin = createAdminClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Non connecté' };
+
+  // Check not already signed
+  const { data: existing } = await supabase
+    .from('student_contracts')
+    .select('id')
+    .eq('shift_id', data.shiftId)
+    .maybeSingle();
+
+  if (existing) return { success: true, alreadySigned: true };
+
+  // Get worker info for PDF
+  const { data: worker } = await supabase
+    .from('flexi_workers')
+    .select('*')
+    .eq('id', data.workerId)
+    .single();
+
+  if (!worker) return { error: 'Travailleur introuvable' };
+
+  // Get location
+  const { data: location } = await supabase
+    .from('locations')
+    .select('*')
+    .eq('id', data.locationId)
+    .single();
+
+  try {
+    const headersList = headers();
+    const ip = headersList.get('x-forwarded-for')?.split(',')[0]?.trim()
+      || headersList.get('x-real-ip')
+      || 'unknown';
+
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('fr-BE', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+
+    // Calculate hours
+    const [sh, sm] = data.startTime.split(':').map(Number);
+    const [eh, em] = data.endTime.split(':').map(Number);
+    const hours = ((eh * 60 + em) - (sh * 60 + sm)) / 60;
+
+    const shiftDateFormatted = new Date(data.contractDate).toLocaleDateString('fr-BE', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+    });
+
+    // ===== GENERATE PDF =====
+    const pdf = await PDFDocument.create();
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
+    const fontItalic = await pdf.embedFont(StandardFonts.HelveticaOblique);
+
+    const W = 595; const H = 842; const M = 50; const TW = W - M * 2;
+    const dark = rgb(0.15, 0.15, 0.15);
+    const gray = rgb(0.35, 0.35, 0.35);
+    const light = rgb(0.55, 0.55, 0.55);
+    const red = rgb(0.7, 0.1, 0.1);
+
+    let page = pdf.addPage([W, H]);
+    let y = H - M;
+
+    // Header
+    page.drawText("CONTRAT D'OCCUPATION D'ÉTUDIANT", { x: M, y, size: 15, font: fontBold, color: dark });
+    y -= 18;
+    page.drawText('Commission Paritaire 302 — Horeca', { x: M, y, size: 10, font: fontItalic, color: light });
+    y -= 15;
+    page.drawText('Document social — à conserver 5 ans', { x: M, y, size: 9, font: fontItalic, color: red });
+    y -= 30;
+
+    // Employer
+    page.drawText('Entre', { x: M, y, size: 11, font: fontBold, color: gray });
+    y -= 18;
+    for (const l of [
+      'S.B.U.R.G.S. SRL, employeur',
+      'Rue de Mons 2, 7050 Jurbise',
+      'BCE : 1009.237.290',
+      'Représenté par Michele Terrana, gérant',
+    ]) {
+      page.drawText(l, { x: M + 10, y, size: 10, font, color: dark });
+      y -= 15;
+    }
+    y -= 10;
+
+    // Student
+    page.drawText('et', { x: M, y, size: 11, font: fontBold, color: gray });
+    y -= 18;
+    const dob = worker.date_of_birth
+      ? new Date(worker.date_of_birth).toLocaleDateString('fr-BE')
+      : 'non renseigné';
+    const addr = worker.address_street
+      ? `${worker.address_street}, ${worker.address_zip || ''} ${worker.address_city || ''}`
+      : 'non renseigné';
+    for (const l of [
+      `${worker.first_name} ${worker.last_name}, étudiant(e)`,
+      `Né(e) le ${dob}`,
+      `Domicilié(e) : ${addr}`,
+      `NISS : ${worker.niss || 'non renseigné'}`,
+    ]) {
+      page.drawText(l, { x: M + 10, y, size: 10, font, color: dark });
+      y -= 15;
+    }
+    y -= 15;
+
+    page.drawText('Il est convenu ce qui suit :', { x: M, y, size: 11, font: fontBold, color: gray });
+    y -= 22;
+
+    // Articles conformes au modèle Partena CNT 6
+    const articles = [
+      {
+        t: 'Article 1 — Fonction',
+        b: `L'employeur engage l'étudiant pour remplir la fonction de polyvalent en restauration rapide et les tâches suivantes : préparation des commandes, service au comptoir, encaissement, nettoyage et entretien. Cette liste est indicative mais non limitative.`,
+      },
+      {
+        t: 'Article 2 — Durée',
+        b: `L'engagement est conclu pour une durée déterminée prenant cours le ${shiftDateFormatted} pour se terminer le ${shiftDateFormatted} (contrat journalier).`,
+      },
+      {
+        t: 'Article 3 — Période d\'essai',
+        b: 'Les 3 premiers jours de travail sont considérés comme période d\'essai.',
+      },
+      {
+        t: 'Article 4 — Lieu de travail',
+        b: `L'étudiant est engagé pour travailler à ${location?.name || 'MDjambo'} — ${location?.address || 'adresse de l\'établissement'}.`,
+      },
+      {
+        t: 'Article 5 — Horaire de travail',
+        b: `La durée du travail pour cette prestation est fixée de ${data.startTime} à ${data.endTime}, soit ${hours.toFixed(1)} heures. Les jours de repos sont mentionnés dans le règlement de travail.`,
+      },
+      {
+        t: 'Article 6 — Rémunération',
+        b: `La rémunération convenue est fixée à ${data.hourlyRate.toFixed(2)} EUR bruts de l'heure. La loi du 12 avril 1965 concernant la protection de la rémunération est applicable.`,
+      },
+      {
+        t: 'Article 7 — Paiement',
+        b: `Le paiement de la rémunération sera effectué par virement bancaire sur le compte IBAN ${worker.iban || '[à compléter]'}.`,
+      },
+      {
+        t: 'Article 8 — Commission paritaire',
+        b: 'Les conditions de travail sont établies sur base des décisions de la commission paritaire n° 302 (Horeca).',
+      },
+      {
+        t: 'Article 9 — Préavis',
+        b: "Jusqu'à l'expiration de la période d'essai, les parties peuvent mettre fin au contrat sans préavis ni indemnité. Après la période d'essai, un préavis de 3 jours (employeur) ou 1 jour (étudiant) est requis si l'engagement ne dépasse pas 1 mois.",
+      },
+      {
+        t: 'Article 10 — Dispositions légales',
+        b: "Le contrat est soumis aux dispositions de la loi du 3 juillet 1978 relative aux contrats de travail, de la loi du 26 décembre 2013 et des conventions collectives de travail applicables. L'étudiant reconnaît avoir reçu un exemplaire du présent contrat et une copie du règlement de travail.",
+      },
+    ];
+
+    for (const art of articles) {
+      if (y < 80) {
+        page = pdf.addPage([W, H]);
+        y = H - M;
+      }
+      const targetPage = pdf.getPages()[pdf.getPageCount() - 1];
+      targetPage.drawText(art.t, { x: M, y, size: 10, font: fontBold, color: dark });
+      y -= 15;
+      y = drawWrapped(targetPage, art.b, M + 10, y, TW - 10, 9, font, gray);
+      y -= 8;
+    }
+
+    // Legal info section
+    if (y < 120) {
+      page = pdf.addPage([W, H]);
+      y = H - M;
+    }
+    const infoPage = pdf.getPages()[pdf.getPageCount() - 1];
+    y -= 10;
+    infoPage.drawText('Informations légales', { x: M, y, size: 10, font: fontBold, color: dark });
+    y -= 15;
+    for (const l of [
+      'Boîte de secours : Cuisine de chaque établissement MDjambo',
+      'Premiers secours : Michele Terrana ou responsable de service présent',
+      'Direction du contrôle des lois sociales : Rue du Miroir 8, 7000 Mons — tél. (02) 233.46.70',
+    ]) {
+      infoPage.drawText(l, { x: M + 10, y, size: 8, font, color: gray });
+      y -= 12;
+    }
+
+    // Signature section
+    y -= 20;
+    infoPage.drawText('Fait en deux exemplaires.', { x: M, y, size: 10, font: fontBold, color: dark });
+    y -= 20;
+
+    infoPage.drawText("L'employeur :", { x: M, y, size: 10, font: fontBold, color: dark });
+    infoPage.drawText("L'étudiant(e) :", { x: M + TW / 2 + 10, y, size: 10, font: fontBold, color: dark });
+    y -= 15;
+    infoPage.drawText('Michele Terrana', { x: M, y, size: 9, font, color: dark });
+    infoPage.drawText(`${worker.first_name} ${worker.last_name}`, { x: M + TW / 2 + 10, y, size: 9, font, color: dark });
+    y -= 15;
+    infoPage.drawText(`Date : ${shiftDateFormatted}`, { x: M, y, size: 9, font, color: dark });
+    infoPage.drawText(`Validé digitalement le ${dateStr}`, { x: M + TW / 2 + 10, y, size: 9, font: fontItalic, color: light });
+    y -= 25;
+
+    // Digital signature metadata
+    infoPage.drawText('Preuve de signature digitale :', { x: M, y, size: 9, font: fontBold, color: dark });
+    y -= 14;
+    for (const m of [
+      `Horodatage : ${dateStr}`,
+      `Adresse IP : ${ip}`,
+      `Géolocalisation : ${data.geoLat?.toFixed(6) || 'N/A'}, ${data.geoLng?.toFixed(6) || 'N/A'}`,
+      `Identifiant : ${user.id}`,
+      `Email : ${user.email}`,
+    ]) {
+      infoPage.drawText(m, { x: M + 10, y, size: 8, font, color: light });
+      y -= 11;
+    }
+
+    y -= 15;
+    infoPage.drawText("L'acceptation via le portail FritOS Flexi vaut signature électronique (Règlement eIDAS art. 3.10).", {
+      x: M, y, size: 7, font: fontItalic, color: light,
+    });
+    y -= 10;
+    infoPage.drawText('Modèle conforme au CNT 6 — Partena Professional — Mis à jour au 01.01.2026', {
+      x: M, y, size: 7, font: fontItalic, color: light,
+    });
+
+    // Footer all pages
+    const allPages = pdf.getPages();
+    allPages.forEach((p, i) => {
+      p.drawText(`Contrat étudiant — ${worker.first_name} ${worker.last_name} — ${shiftDateFormatted} — Page ${i + 1}/${allPages.length}`, {
+        x: M, y: 25, size: 7, font: fontItalic, color: rgb(0.6, 0.6, 0.6),
+      });
+    });
+
+    const pdfBytes = await pdf.save();
+
+    // Upload PDF
+    const fileName = `${user.id}/contrat-etudiant-${data.contractDate}.pdf`;
+    const { error: uploadError } = await admin.storage
+      .from('contracts')
+      .upload(fileName, pdfBytes, { contentType: 'application/pdf', upsert: true });
+
+    let pdfUrl: string | null = null;
+    if (!uploadError) {
+      const { data: urlData } = await admin.storage
+        .from('contracts')
+        .createSignedUrl(fileName, 60 * 60 * 24 * 365 * 5); // 5 years
+      pdfUrl = urlData?.signedUrl || null;
+    }
+
+    // Insert contract record
+    const { data: contract, error } = await supabase
+      .from('student_contracts')
+      .insert({
+        shift_id: data.shiftId,
+        worker_id: data.workerId,
+        location_id: data.locationId,
+        contract_date: data.contractDate,
+        start_time: data.startTime,
+        end_time: data.endTime,
+        hourly_rate: data.hourlyRate,
+        signed_at: now.toISOString(),
+        signed_ip: ip,
+        signed_user_agent: data.userAgent,
+        geo_lat: data.geoLat,
+        geo_lng: data.geoLng,
+        contract_pdf_url: pdfUrl,
+      })
+      .select()
+      .single();
+
+    if (error) return { success: false, error: error.message };
+
+    revalidatePath('/flexi/missions');
+    return { success: true, contractId: contract.id };
+
+  } catch (err: any) {
+    console.error('Student contract error:', err);
+    return { error: `Erreur : ${err.message}` };
+  }
+}
+
+/**
+ * Get all signed student contracts for a worker
+ */
+export async function getStudentContracts(workerId: string) {
+  const supabase = createClient();
+
+  const { data, error } = await supabase
+    .from('student_contracts')
+    .select(`*, locations(name), shifts(date, start_time, end_time)`)
+    .eq('worker_id', workerId)
+    .order('contract_date', { ascending: false });
+
+  if (error) return { error: error.message };
+  return { data };
 }

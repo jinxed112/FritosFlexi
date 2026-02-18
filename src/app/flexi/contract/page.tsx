@@ -46,35 +46,25 @@ export default function ContractPage() {
     if (step !== 'sign') return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-
-    // Set canvas size based on container
     const rect = canvas.parentElement?.getBoundingClientRect();
     if (rect) {
       canvas.width = rect.width;
       canvas.height = 200;
     }
-
     ctx.strokeStyle = '#1a1a1a';
     ctx.lineWidth = 2.5;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-
-    // Fill white background
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Draw baseline
     ctx.strokeStyle = '#e5e5e5';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(20, canvas.height - 40);
     ctx.lineTo(canvas.width - 20, canvas.height - 40);
     ctx.stroke();
-
-    // Reset stroke style for drawing
     ctx.strokeStyle = '#1a1a1a';
     ctx.lineWidth = 2.5;
   }, [step]);
@@ -91,8 +81,7 @@ export default function ContractPage() {
 
   const startDraw = (e: React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
+    const ctx = canvasRef.current?.getContext('2d');
     if (!ctx) return;
     setIsDrawing(true);
     const pos = getPos(e);
@@ -103,8 +92,7 @@ export default function ContractPage() {
   const draw = (e: React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
     if (!isDrawing) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
+    const ctx = canvasRef.current?.getContext('2d');
     if (!ctx) return;
     const pos = getPos(e);
     ctx.lineTo(pos.x, pos.y);
@@ -120,7 +108,6 @@ export default function ContractPage() {
     if (!ctx || !canvas) return;
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // Redraw baseline
     ctx.strokeStyle = '#e5e5e5';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -136,14 +123,12 @@ export default function ContractPage() {
     if (!canvasRef.current || !hasSigned) return;
     const signatureData = canvasRef.current.toDataURL('image/png');
     setError('');
-
     startTransition(async () => {
       const result = await signFrameworkContract(signatureData);
       if (result.error) {
         setError(result.error);
       } else {
         setStep('done');
-        // Reload worker data
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           const { data } = await supabase.from('flexi_workers').select('*').eq('user_id', user.id).single();
@@ -153,34 +138,35 @@ export default function ContractPage() {
     });
   };
 
+  // Articles conformes au modèle Partena CNT 13
   const articles = [
     {
       title: 'Article 1 — Objet',
-      text: 'Le présent contrat-cadre est conclu dans le cadre de la réglementation relative aux flexi-jobs. Il définit les conditions générales dans lesquelles vous pourrez effectuer des prestations de travail pour S.B.U.R.G.S. SRL (MDjambo).',
+      text: "Chacune des parties exprime, par le présent contrat-cadre, son intention de conclure un ou plusieurs contrat(s) de travail flexi-job. Le présent contrat-cadre ne contraint pas les parties à conclure effectivement un contrat de travail flexi-job et ne crée aucun droit dans leur chef.",
     },
     {
-      title: 'Article 2 — Fonction et lieux de travail',
-      text: 'Vous exercerez la fonction de collaborateur polyvalent en restauration rapide. Les prestations peuvent avoir lieu dans l\'un ou l\'autre des établissements : MDjambo Jurbise et MDjambo Boussu.',
+      title: 'Article 2 — Durée',
+      text: "Le présent contrat-cadre est conclu pour une durée indéterminée à partir de la date de signature.",
     },
     {
-      title: 'Article 3 — Rémunération',
-      text: `Votre flexi-salaire horaire est fixé à ${worker?.hourly_rate || '12,53'} €/h brut/net (pécule de vacances de 7,67% inclus). Ce salaire est exonéré d'impôt et de cotisations sociales. Une prime dimanche/jour férié de 2 €/h (max 12 €/jour) est applicable.`,
+      title: 'Article 3 — Proposition de contrat',
+      text: "L'employeur propose au travailleur un contrat de travail flexi-job via le portail FritOS Flexi, dans un délai minimum de 24 heures avant le début de l'exécution. La proposition précisera la date, le lieu (Jurbise ou Boussu), l'horaire et la fonction.",
     },
     {
-      title: 'Article 4 — Horaires et planning',
-      text: 'Les horaires de travail vous seront communiqués via la plateforme FritOS Flexi. Vous êtes libre d\'accepter ou de refuser chaque mission proposée. Chaque prestation acceptée fera l\'objet d\'une déclaration Dimona préalable.',
+      title: 'Article 4 — Acceptation ou refus',
+      text: "La proposition est acceptée ou refusée par le travailleur via le portail FritOS Flexi dans un délai de 24 heures. L'acceptation sur le portail vaut accord du travailleur.",
     },
     {
-      title: 'Article 5 — Vos obligations',
-      text: 'Vous vous engagez à : (a) vous présenter aux heures convenues, (b) pointer votre arrivée et votre départ via le système de pointage, (c) respecter les règles d\'hygiène et de sécurité alimentaire, (d) signaler toute indisponibilité dans les meilleurs délais.',
+      title: 'Article 5 — Fonction',
+      text: "Le travailleur assumera la fonction de polyvalent en restauration rapide (préparation, service, caisse, nettoyage) au sein des établissements MDjambo Jurbise et MDjambo Boussu.",
     },
     {
-      title: 'Article 6 — Plafond fiscal',
-      text: 'Les revenus flexi-job sont exonérés d\'impôt jusqu\'à 18 000 € par an (sauf pensionnés). Au-delà, les revenus sont imposés normalement. Vous êtes responsable du suivi de votre compteur via mycareer.be.',
+      title: 'Article 6 — Rémunération',
+      text: `Le salaire de base est fixé à ${worker?.hourly_rate || '12,53'} €/h nets (minimum horeca CP 302, pécule de vacances 7,67% inclus). Ce montant sera adapté selon les indexations légales. Prime dimanche/jour férié : +2 €/h (max 12 €/jour). Le flexisalaire est fixé conformément à la loi du 16 novembre 2015.`,
     },
     {
-      title: 'Article 7 — Durée et résiliation',
-      text: 'Le présent contrat-cadre est conclu pour une durée indéterminée. Il peut être résilié par l\'une ou l\'autre partie moyennant un préavis écrit.',
+      title: 'Article 7 — Conditions légales',
+      text: "Le travailleur déclare satisfaire aux conditions légales pour exercer un flexi-job : occupation d'au moins 4/5e chez un autre employeur durant le trimestre T-3. Cette condition ne s'applique pas aux pensionnés.",
     },
   ];
 
@@ -199,17 +185,15 @@ export default function ContractPage() {
           <p className="text-sm text-emerald-600">
             Signé le {worker.framework_contract_date
               ? new Date(worker.framework_contract_date).toLocaleDateString('fr-BE', { day: 'numeric', month: 'long', year: 'numeric' })
-              : 'aujourd\'hui'}
+              : "aujourd'hui"}
           </p>
         </div>
-
         {worker.framework_contract_url && (
           <a href={worker.framework_contract_url} target="_blank" rel="noopener noreferrer"
             className="block w-full text-center bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl py-3 text-sm font-medium transition-colors">
             Télécharger le contrat signé (PDF)
           </a>
         )}
-
         <button onClick={() => router.push('/flexi/missions')}
           className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-3 font-medium text-sm transition-colors">
           Voir mes missions
@@ -218,32 +202,25 @@ export default function ContractPage() {
     );
   }
 
-  // ===== STEP 1: READ CONTRACT =====
+  // ===== STEP 1: READ =====
   if (step === 'read') {
     return (
       <div className="space-y-4">
         <div className="text-center mb-2">
           <h2 className="text-lg font-bold text-gray-900">Contrat-cadre flexi-job</h2>
-          <p className="text-xs text-gray-500 mt-1">Lisez le contrat avant de le signer</p>
+          <p className="text-xs text-gray-500 mt-1">Modèle Partena CNT 13 — CP 302 Horeca</p>
         </div>
-
-        {/* Contract content */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          {/* Employer info */}
           <div className="p-4 bg-gray-50 border-b border-gray-100">
             <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-2">Employeur</p>
             <p className="text-sm font-semibold text-gray-800">S.B.U.R.G.S. SRL — MDjambo</p>
-            <p className="text-xs text-gray-500 mt-1">CP 302 — Horeca</p>
+            <p className="text-xs text-gray-500 mt-1">Rue de Mons 2, 7050 Jurbise — BCE 1009.237.290</p>
           </div>
-
-          {/* Worker info */}
           <div className="p-4 border-b border-gray-100">
             <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-2">Travailleur</p>
             <p className="text-sm font-semibold text-gray-800">{worker.first_name} {worker.last_name}</p>
             <p className="text-xs text-gray-500 mt-1">{worker.email}</p>
           </div>
-
-          {/* Articles — accordion */}
           <div className="divide-y divide-gray-50">
             {articles.map((art, i) => (
               <div key={i}>
@@ -263,8 +240,6 @@ export default function ContractPage() {
             ))}
           </div>
         </div>
-
-        {/* Accept checkbox */}
         <label className="flex items-start gap-3 p-4 bg-white rounded-xl border border-gray-200 cursor-pointer">
           <input type="checkbox" checked={hasRead} onChange={(e) => setHasRead(e.target.checked)}
             className="mt-0.5 rounded border-gray-300 text-orange-500 focus:ring-orange-500" />
@@ -272,15 +247,10 @@ export default function ContractPage() {
             J&apos;ai lu et je comprends les termes du contrat-cadre flexi-job
           </span>
         </label>
-
         <button onClick={() => setStep('sign')} disabled={!hasRead}
           className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-3 font-medium text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
           Continuer vers la signature
         </button>
-
-        <p className="text-center text-[10px] text-gray-400 px-4">
-          En signant ce contrat, vous acceptez de travailler comme flexi-job pour S.B.U.R.G.S. SRL selon les conditions décrites ci-dessus.
-        </p>
       </div>
     );
   }
@@ -292,17 +262,10 @@ export default function ContractPage() {
         <h2 className="text-lg font-bold text-gray-900">Signez votre contrat</h2>
         <p className="text-xs text-gray-500 mt-1">Dessinez votre signature ci-dessous</p>
       </div>
-
-      {/* Recap */}
       <div className="bg-gray-50 rounded-xl p-4 text-sm">
-        <div className="flex justify-between mb-1">
-          <span className="text-gray-500">Contrat-cadre entre</span>
-        </div>
         <p className="font-semibold text-gray-800 mb-0.5">S.B.U.R.G.S. SRL (MDjambo)</p>
         <p className="text-gray-600">et <strong>{worker.first_name} {worker.last_name}</strong></p>
       </div>
-
-      {/* Signature canvas */}
       <div className="bg-white rounded-2xl border-2 border-dashed border-gray-200 overflow-hidden">
         <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
           <span className="text-xs text-gray-500 font-medium">Votre signature</span>
@@ -315,13 +278,8 @@ export default function ContractPage() {
             ref={canvasRef}
             className="w-full touch-none cursor-crosshair"
             style={{ height: 200 }}
-            onMouseDown={startDraw}
-            onMouseMove={draw}
-            onMouseUp={endDraw}
-            onMouseLeave={endDraw}
-            onTouchStart={startDraw}
-            onTouchMove={draw}
-            onTouchEnd={endDraw}
+            onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+            onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
           />
           {!hasSigned && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -330,18 +288,15 @@ export default function ContractPage() {
           )}
         </div>
       </div>
-
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2">
           <AlertTriangle size={16} className="text-red-500 flex-shrink-0" />
           <p className="text-sm text-red-600">{error}</p>
         </div>
       )}
-
       <p className="text-[10px] text-gray-400 text-center leading-relaxed px-2">
-        En cliquant &quot;Signer le contrat&quot;, vous confirmez que cette signature est la vôtre et que vous acceptez les termes du contrat-cadre. Un PDF signé sera généré et conservé comme preuve.
+        En cliquant &quot;Signer le contrat&quot;, vous confirmez que cette signature est la vôtre et que vous acceptez les termes du contrat-cadre. Un PDF signé sera généré et conservé.
       </p>
-
       <div className="flex gap-3">
         <button onClick={() => setStep('read')}
           className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl py-3 font-medium text-sm transition-colors">
@@ -350,14 +305,9 @@ export default function ContractPage() {
         <button onClick={handleSign} disabled={!hasSigned || isPending}
           className="flex-1 bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-3 font-medium text-sm transition-colors disabled:opacity-40 flex items-center justify-center gap-2">
           {isPending ? (
-            <>
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              Signature...
-            </>
+            <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Signature...</>
           ) : (
-            <>
-              <Check size={16} /> Signer le contrat
-            </>
+            <><Check size={16} /> Signer le contrat</>
           )}
         </button>
       </div>

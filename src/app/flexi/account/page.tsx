@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { updateProfile } from '@/lib/actions/workers';
 import { updatePinCode } from '@/lib/actions/clock';
 import { validateNISS, formatNISS, validateIBAN, formatIBAN, validatePhone, profileCompletionCount } from '@/utils/validation';
+import StudentContractsList from '@/components/flexi/StudentContractsList';
 import type { FlexiWorker, UpdateProfileInput } from '@/types';
 
 export default function FlexiAccountPage() {
@@ -207,6 +208,9 @@ export default function FlexiAccountPage() {
 
       {/* Password change */}
       <PasswordChangeSection />
+
+      {/* Student contracts history */}
+      {worker.status === 'student' && <StudentContractsList workerId={worker.id} />}
     </div>
   );
 }
