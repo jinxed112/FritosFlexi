@@ -6,10 +6,11 @@ import { createWorker, toggleWorkerActive, resetWorkerPassword, deleteWorker } f
 import { createMultiShifts } from '@/lib/actions/shifts';
 import { calculateHours, calculateCost, formatEuro } from '@/utils';
 import { FLEXI_CONSTANTS } from '@/types';
+import ManagerContractsPanel from '@/components/dashboard/ManagerContractsPanel';
 import {
   Plus, X, UserPlus, Calendar, Clock, ChevronLeft, ChevronRight,
   Search, MoreHorizontal, KeyRound, Power, Trash2, User, Mail, Phone,
-  CreditCard, MapPin, FileCheck, AlertTriangle
+  CreditCard, MapPin, FileCheck, AlertTriangle, FileText
 } from 'lucide-react';
 
 const PRESETS = [
@@ -42,7 +43,7 @@ export default function WorkersList({ workers, locations }: Props) {
 
   // Detail/Assign panel
   const [selectedWorker, setSelectedWorker] = useState<any>(null);
-  const [panelTab, setPanelTab] = useState<'fiche' | 'assign'>('fiche');
+  const [panelTab, setPanelTab] = useState<'fiche' | 'assign' | 'contrats'>('fiche');
 
   // Assignment state
   const [assignWeekStart, setAssignWeekStart] = useState(() => {
@@ -376,6 +377,10 @@ export default function WorkersList({ workers, locations }: Props) {
                 className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${panelTab === 'assign' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                 <Calendar size={14} className="inline mr-1.5 -mt-0.5" />Assigner
               </button>
+              <button onClick={() => setPanelTab('contrats')}
+                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${panelTab === 'contrats' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                <FileText size={14} className="inline mr-1.5 -mt-0.5" />Contrats
+              </button>
             </div>
 
             {/* Panel content */}
@@ -486,6 +491,14 @@ export default function WorkersList({ workers, locations }: Props) {
                     </button>
                   </div>
                 </div>
+              )}
+
+              {/* ===== CONTRATS TAB ===== */}
+              {panelTab === 'contrats' && (
+                <ManagerContractsPanel
+                  workerId={selectedWorker.id}
+                  workerName={`${selectedWorker.first_name} ${selectedWorker.last_name}`}
+                />
               )}
 
               {/* ===== ASSIGN TAB ===== */}

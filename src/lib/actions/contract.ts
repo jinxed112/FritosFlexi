@@ -1037,3 +1037,41 @@ export async function kioskSignStudentContract(data: {
     return { success: false, error: `Erreur : ${err.message}` };
   }
 }
+
+/**
+ * Get all contracts for a worker — MANAGER ONLY
+ * Returns both framework contract info and student contracts
+ */
+export async function getWorkerContractsAsManager(workerId: string) {
+  const supabase = createClient();
+
+  // Verify caller is manager
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Non connecté' };
+
+  const role = user.user_metadata?.role;
+  if (role !== 'manager') return { error: 'Accès refusé' };
+
+  const admin = createAdminClient();
+
+  // Get worker framework contract info
+  const { data: worker } = await admin
+    .from('flexi_workers')
+    .select('id, first_name, last_name, framework_contract_date, framework_contract_url')
+    .eq('id', workerId)
+    .single();
+
+  // Get student contracts
+  const { data: studentContracts, error } = await admin
+    .from('student_contracts')
+    .select(`*, locations(name), shifts(date, start_time, end_time)`)
+    .eq('worker_id', workerId)
+    .order('contract_date', { ascending: false });
+
+  if (error) return { error: error.message };
+
+  return {
+    frameworkContract: worker,
+    studentContracts: studentContracts || [],
+  };
+}
