@@ -3,8 +3,9 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { validateTimeEntry, correctTimeEntry } from '@/lib/actions/clock';
+import { cancelShiftFromValidation } from '@/lib/actions/cancel-shift';
 import { calculateCost, formatEuro } from '@/utils';
-import { CheckSquare, Clock, ChevronDown, ChevronUp, AlertTriangle, Pencil } from 'lucide-react';
+import { CheckSquare, Clock, ChevronDown, ChevronUp, AlertTriangle, Pencil, XCircle } from 'lucide-react';
 
 interface Props {
   entries: any[];
@@ -17,6 +18,7 @@ export default function ValidationTable({ entries }: Props) {
   const [editId, setEditId] = useState<string | null>(null);
   const [editStart, setEditStart] = useState('');
   const [editEnd, setEditEnd] = useState('');
+  const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
 
   const handleValidate = (id: string) => {
     startTransition(async () => { await validateTimeEntry(id); router.refresh(); });
@@ -27,6 +29,15 @@ export default function ValidationTable({ entries }: Props) {
       for (const e of entries) {
         await validateTimeEntry(e.id);
       }
+      router.refresh();
+    });
+  };
+
+  const handleCancel = (id: string) => {
+    startTransition(async () => {
+      const result = await cancelShiftFromValidation(id);
+      if (result.error) alert(result.error);
+      setCancelConfirmId(null);
       router.refresh();
     });
   };
@@ -174,6 +185,13 @@ export default function ValidationTable({ entries }: Props) {
                     {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                   </button>
 
+                  {/* Cancel */}
+                  <button onClick={(ev) => { ev.stopPropagation(); setCancelConfirmId(e.id); }}
+                    className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500 flex-shrink-0 transition-colors"
+                    title="Annuler ce shift">
+                    <XCircle size={16} />
+                  </button>
+
                   {/* Validate */}
                   <button onClick={() => handleValidate(e.id)} disabled={isPending}
                     className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 flex-shrink-0">
@@ -303,6 +321,27 @@ export default function ValidationTable({ entries }: Props) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Cancel confirmation modal */}
+      {cancelConfirmId && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
+            <h3 className="font-bold text-gray-900 mb-2">Annuler ce shift ?</h3>
+            <p className="text-sm text-gray-600 mb-1">Le pointage sera supprimé et le shift passera en &quot;annulé&quot;.</p>
+            <p className="text-xs text-red-500 mb-4">Cette action est irréversible.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setCancelConfirmId(null)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl py-2.5 font-medium text-sm">
+                Retour
+              </button>
+              <button onClick={() => handleCancel(cancelConfirmId)} disabled={isPending}
+                className="flex-1 bg-red-500 hover:bg-red-600 text-white rounded-xl py-2.5 font-medium text-sm disabled:opacity-50">
+                {isPending ? '...' : 'Annuler le shift'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </>
