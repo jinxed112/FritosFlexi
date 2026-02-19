@@ -128,7 +128,7 @@ export default function DimonaTable({ declarations }: Props) {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         {Object.entries(counts).map(([status, count]) => {
           const key = status === 'ready' ? 'ready' : status;
           const s = statusStyles[key];
@@ -142,8 +142,78 @@ export default function DimonaTable({ declarations }: Props) {
         })}
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-4">
+      {/* Mobile card list */}
+      <div className="sm:hidden space-y-2 mb-4">
+        {declarations.map((d: any) => {
+          const s = statusStyles[d.status] || statusStyles.pending;
+          const w = d.flexi_workers;
+          const shift = d.shifts;
+          const isLoading = loadingId === d.id;
+
+          return (
+            <div key={d.id} className={`bg-white rounded-xl border border-gray-100 shadow-sm p-3 ${d.status === 'cancelled' ? 'opacity-50' : ''}`}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${s.bg} ${s.text}`}>
+                    {s.icon} {s.label}
+                  </span>
+                  <span className="text-[11px] font-mono text-gray-400">{d.declaration_type}</span>
+                </div>
+                {d.dimona_period_id && (
+                  <span className="text-[10px] font-mono text-gray-300">{d.dimona_period_id}</span>
+                )}
+              </div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-gray-800">{w?.first_name} {w?.last_name}</span>
+                <span className="text-xs text-gray-400">{d.locations?.name}</span>
+              </div>
+              <div className="flex items-center gap-3 text-xs text-gray-500 mb-3">
+                <span>{shift?.date ? new Date(shift.date).toLocaleDateString('fr-BE') : '—'}</span>
+                <span>{shift?.start_time?.slice(0, 5)}–{shift?.end_time?.slice(0, 5)}</span>
+              </div>
+              <div className="flex gap-1.5 flex-wrap">
+                {(d.status === 'ready' || d.status === 'pending') && d.declaration_type === 'IN' && (
+                  <>
+                    <button onClick={() => handleApiDeclare(d.id)} disabled={isLoading || isPending}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50 flex items-center gap-1">
+                      {isLoading ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} API
+                    </button>
+                    <button onClick={() => handleCopy(d.id)}
+                      className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-2 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1">
+                      <Copy size={12} /> Copier
+                    </button>
+                    <button onClick={() => handleSetOk(d.id)} disabled={isPending}
+                      className="bg-emerald-500 hover:bg-emerald-600 text-white px-2 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50">OK</button>
+                    <button onClick={() => handleSetNok(d.id)} disabled={isPending}
+                      className="bg-red-100 hover:bg-red-200 text-red-600 px-2 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50">NOK</button>
+                  </>
+                )}
+                {d.status === 'ok' && d.declaration_type === 'IN' && d.dimona_period_id && (
+                  <>
+                    <button onClick={() => handleApiCancel(d.id, 'manager_cancelled')} disabled={isLoading || isPending}
+                      className="bg-red-500 hover:bg-red-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50 flex items-center gap-1">
+                      {isLoading ? <Loader2 size={12} className="animate-spin" /> : <XCircle size={12} />} Annuler
+                    </button>
+                    <button onClick={() => handleApiCancel(d.id, 'no_show')} disabled={isLoading || isPending}
+                      className="bg-orange-500 hover:bg-orange-600 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50 flex items-center gap-1">
+                      <UserX size={12} /> No-show
+                    </button>
+                  </>
+                )}
+                {d.status === 'error' && d.declaration_type === 'IN' && (
+                  <button onClick={() => handleApiDeclare(d.id)} disabled={isLoading || isPending}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50 flex items-center gap-1">
+                    {isLoading ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Réessayer
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden sm:block bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-4">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 text-left">
