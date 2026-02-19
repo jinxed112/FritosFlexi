@@ -1,5 +1,8 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
+import { LogOut } from 'lucide-react';
+import { createBrowserClient } from '@supabase/ssr';
 import type { FlexiWorker } from '@/types';
 import { FLEXI_CONSTANTS } from '@/types';
 
@@ -8,6 +11,7 @@ interface FlexiHeaderProps {
 }
 
 export default function FlexiHeader({ worker }: FlexiHeaderProps) {
+  const router = useRouter();
   const ytdPct = Math.min((worker.ytd_earnings / FLEXI_CONSTANTS.YTD_BLOCKED_THRESHOLD) * 100, 100);
   const isPensioner = worker.status === 'pensioner';
 
@@ -15,6 +19,15 @@ export default function FlexiHeader({ worker }: FlexiHeaderProps) {
     !isPensioner && worker.ytd_earnings >= 18000 ? 'Plafond atteint' :
     !isPensioner && worker.ytd_earnings > 17000 ? 'Critique' :
     !isPensioner && worker.ytd_earnings > 15000 ? 'Attention' : null;
+
+  const handleLogout = async () => {
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+    await supabase.auth.signOut();
+    router.push('/flexi/login');
+  };
 
   return (
     <div className="bg-gradient-to-br from-orange-500 via-orange-600 to-red-600 text-white px-5 pt-6 pb-4">
@@ -25,9 +38,13 @@ export default function FlexiHeader({ worker }: FlexiHeaderProps) {
             Bonjour, {worker.first_name} 👋
           </h1>
         </div>
-        <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-lg font-bold">
-          {worker.first_name[0]}
-        </div>
+        <button
+          onClick={handleLogout}
+          className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 active:bg-white/40 flex items-center justify-center transition-colors"
+          title="Se déconnecter"
+        >
+          <LogOut size={18} />
+        </button>
       </div>
 
       <div className="flex items-center gap-2 mt-3">
