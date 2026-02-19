@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { LogOut } from 'lucide-react';
-import { createBrowserClient } from '@supabase/ssr';
+import { createClient } from '@/lib/supabase/client';
 import type { FlexiWorker } from '@/types';
 import { FLEXI_CONSTANTS } from '@/types';
 
@@ -17,15 +17,13 @@ export default function FlexiHeader({ worker }: FlexiHeaderProps) {
 
   const alertLabel =
     !isPensioner && worker.ytd_earnings >= 18000 ? 'Plafond atteint' :
-    !isPensioner && worker.ytd_earnings > 17000 ? 'Critique' :
-    !isPensioner && worker.ytd_earnings > 15000 ? 'Attention' : null;
+      !isPensioner && worker.ytd_earnings > 17000 ? 'Critique' :
+        !isPensioner && worker.ytd_earnings > 15000 ? 'Attention' : null;
 
   const handleLogout = async () => {
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
+    const supabase = createClient();
     await supabase.auth.signOut();
+    router.refresh();
     router.push('/flexi/login');
   };
 
