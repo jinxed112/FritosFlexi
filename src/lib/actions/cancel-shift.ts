@@ -1,6 +1,6 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 
 /**
@@ -11,6 +11,12 @@ import { revalidatePath } from 'next/cache';
  */
 export async function cancelShiftFromValidation(timeEntryId: string) {
   const supabase = createClient();
+  const admin = createAdminClient();
+
+  // Auth check: only managers can cancel
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Non connecté' };
+  if (user.user_metadata?.role !== 'manager') return { error: 'Accès refusé' };
 
   // Get the time entry + shift info
   const { data: entry, error: fetchError } = await supabase
@@ -43,16 +49,22 @@ export async function cancelShiftFromValidation(timeEntryId: string) {
     return { error: `Erreur annulation shift : ${shiftError.message}` };
   }
 
-  // 3. Handle associated Dimona
+  // 3. Delete student contract if exists (shift not worked = contract void)
+  await admin
+    .from('student_contracts')
+    .delete()
+    .eq('shift_id', entry.shift_id);
+
+  // 4. Handle associated Dimona
   // If not yet sent to ONSS → delete it
-  await supabase
+  await admin
     .from('dimona_declarations')
     .delete()
     .eq('shift_id', entry.shift_id)
     .in('status', ['pending', 'ready']);
 
   // If already sent/accepted by ONSS → mark for cancellation
-  await supabase
+  await admin
     .from('dimona_declarations')
     .update({ declaration_type: 'CANCEL', notes: 'Shift annulé depuis validation' })
     .eq('shift_id', entry.shift_id)
