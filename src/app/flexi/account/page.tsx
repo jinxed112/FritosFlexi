@@ -47,6 +47,8 @@ export default function FlexiAccountPage() {
       birth_country: fd.get('birth_country') as string || undefined,
       nationality: fd.get('nationality') as string || undefined,
       middle_initial: fd.get('middle_initial') as string || undefined,
+      language: fd.get('language') as string || undefined,
+      education_level: fd.get('education_level') as string || undefined,
       niss: fd.get('niss') as string || undefined,
       address_street: fd.get('address_street') as string || undefined,
       address_city: fd.get('address_city') as string || undefined,
@@ -148,6 +150,40 @@ export default function FlexiAccountPage() {
           <Field label="Pays de naissance" name="birth_country" defaultValue={worker.birth_country || 'Belgique'} required />
         </div>
         <Field label="Nationalité" name="nationality" defaultValue={worker.nationality || 'Belge'} required />
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Langue *</label>
+            <select
+              name="language"
+              defaultValue={worker.language || ''}
+              required
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all text-sm bg-white"
+            >
+              <option value="">-- Choisir --</option>
+              <option value="FR">Français</option>
+              <option value="NL">Néerlandais</option>
+              <option value="DE">Allemand</option>
+              <option value="EN">Anglais</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Niveau d&apos;études *</label>
+            <select
+              name="education_level"
+              defaultValue={worker.education_level || ''}
+              required
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all text-sm bg-white"
+            >
+              <option value="">-- Choisir --</option>
+              <option value="primaire">Niveau primaire</option>
+              <option value="secondaire">Niveau secondaire</option>
+              <option value="superieur">Supérieur non universitaire</option>
+              <option value="universitaire">Niveau universitaire</option>
+              <option value="inconnu">Inconnu</option>
+            </select>
+          </div>
+        </div>
 
         <Field label="Registre national (NISS)" name="niss" defaultValue={worker.niss} placeholder="XX.XX.XX-XXX.XX" required />
         <Field label="Adresse (rue)" name="address_street" defaultValue={worker.address_street} required />

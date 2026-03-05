@@ -10,7 +10,7 @@ import ManagerContractsPanel from '@/components/dashboard/ManagerContractsPanel'
 import {
   Plus, X, UserPlus, Calendar, Clock, ChevronLeft, ChevronRight,
   Search, MoreHorizontal, KeyRound, Power, Trash2, User, Mail, Phone,
-  CreditCard, MapPin, FileCheck, AlertTriangle, FileText
+  CreditCard, MapPin, FileCheck, AlertTriangle, FileText, Globe, GraduationCap, Languages
 } from 'lucide-react';
 
 const PRESETS = [
@@ -400,6 +400,19 @@ export default function WorkersList({ workers, locations }: Props) {
                       selectedWorker.address_street
                         ? `${selectedWorker.address_street}, ${selectedWorker.address_zip || ''} ${selectedWorker.address_city || ''}`
                         : null
+                    } />
+                    <InfoRow icon={<User size={14} />} label="Sexe" value={selectedWorker.gender === 'M' ? 'Homme' : selectedWorker.gender === 'F' ? 'Femme' : null} />
+                    <InfoRow icon={<MapPin size={14} />} label="Lieu de naissance" value={
+                      selectedWorker.birth_place
+                        ? `${selectedWorker.birth_place}${selectedWorker.birth_country ? `, ${selectedWorker.birth_country}` : ''}`
+                        : null
+                    } />
+                    <InfoRow icon={<Globe size={14} />} label="Nationalité" value={selectedWorker.nationality} />
+                    <InfoRow icon={<Languages size={14} />} label="Langue" value={
+                      selectedWorker.language === 'FR' ? 'Français' : selectedWorker.language === 'NL' ? 'Néerlandais' : selectedWorker.language === 'DE' ? 'Allemand' : selectedWorker.language === 'EN' ? 'Anglais' : selectedWorker.language || null
+                    } />
+                    <InfoRow icon={<GraduationCap size={14} />} label="Niveau d'études" value={
+                      selectedWorker.education_level === 'primaire' ? 'Niveau primaire' : selectedWorker.education_level === 'secondaire' ? 'Niveau secondaire' : selectedWorker.education_level === 'superieur' ? 'Supérieur non univ.' : selectedWorker.education_level === 'universitaire' ? 'Universitaire' : selectedWorker.education_level === 'inconnu' ? 'Inconnu' : selectedWorker.education_level || null
                     } />
                     {/* Contrat-cadre — with download link */}
                     <div className="flex items-center gap-3 py-2.5 px-1 border-b border-gray-50">

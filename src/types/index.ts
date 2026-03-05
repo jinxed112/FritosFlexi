@@ -27,6 +27,8 @@ export interface FlexiWorker {
   birth_country: string | null;
   nationality: string | null;
   middle_initial: string | null;
+  language: string | null;
+  education_level: string | null;
   niss: string | null;
   address_street: string | null;
   address_city: string | null;
@@ -205,6 +207,8 @@ export interface UpdateProfileInput {
   birth_country?: string;
   nationality?: string;
   middle_initial?: string;
+  language?: string;
+  education_level?: string;
   niss?: string;
   address_street?: string;
   address_city?: string;
