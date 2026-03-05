@@ -91,17 +91,17 @@ export default async function DashboardOverviewPage() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         {[
           { label: 'Coût direct', value: formatEuro(totalCost), sub: 'Ce mois' },
           { label: 'Via NowJobs', value: formatEuro(nowjobsCost), sub: 'Équivalent' },
           { label: 'Économie', value: formatEuro(savings), sub: 'Ce mois', accent: true },
           { label: 'Heures', value: `${totalHours.toFixed(1)}h`, sub: `${acceptedShifts} shifts` },
         ].map((kpi) => (
-          <div key={kpi.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-            <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">{kpi.label}</p>
-            <p className={`text-2xl font-bold tracking-tight ${kpi.accent ? 'text-emerald-600' : 'text-gray-900'}`}>{kpi.value}</p>
-            <p className="text-xs text-gray-400 mt-1">{kpi.sub}</p>
+          <div key={kpi.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider mb-1">{kpi.label}</p>
+            <p className={`text-xl font-bold tracking-tight ${kpi.accent ? 'text-emerald-600' : 'text-gray-900'}`}>{kpi.value}</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">{kpi.sub}</p>
           </div>
         ))}
       </div>

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+  <title>Hors ligne – MDjambo</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap');
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'DM Sans', system-ui, sans-serif;
+      background: #111827;
+      color: #e5e7eb;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+      text-align: center;
+      -webkit-font-smoothing: antialiased;
+    }
+    .container { max-width: 360px; }
+    .emoji { font-size: 3.5rem; margin-bottom: 1.25rem; }
+    h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem; color: #F97316; }
+    p { font-size: 0.875rem; color: #9ca3af; margin-bottom: 1.5rem; line-height: 1.6; }
+    button {
+      font-family: 'DM Sans', system-ui, sans-serif;
+      background: #F97316;
+      color: white;
+      border: none;
+      padding: 0.75rem 2rem;
+      border-radius: 0.75rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+    }
+    button:active { background: #EA580C; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="emoji">📡</div>
+    <h1>Pas de connexion</h1>
+    <p>Vérifie ta connexion internet et réessaie.<br>Ton pointage sera synchronisé dès que tu seras reconnecté.</p>
+    <button onclick="window.location.reload()">Réessayer</button>
+  </div>
+</body>
+</html>

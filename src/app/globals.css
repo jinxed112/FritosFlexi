@@ -39,3 +39,27 @@ body {
 .animate-pulse-dot {
   animation: pulse-dot 2s ease-in-out infinite;
 }
+
+/* ─── PWA Standalone Mode ──────────────────────────────── */
+/* Safe area for notch/dynamic island */
+@supports (padding: env(safe-area-inset-top)) {
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Disable text selection on buttons in standalone (feels more native) */
+@media (display-mode: standalone) {
+  button, a, nav {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Pull-to-refresh prevention */
+  body {
+    overscroll-behavior-y: contain;
+  }
+}

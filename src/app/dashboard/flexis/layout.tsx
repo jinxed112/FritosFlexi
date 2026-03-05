@@ -15,10 +15,10 @@ export default async function DashboardFlexiLayout({
   }
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex flex-col lg:flex-row h-screen bg-gray-50">
       <DashboardSidebar />
       <main className="flex-1 overflow-auto min-w-0">
-        <div className="p-3 pl-14 sm:p-4 sm:pl-14 lg:p-6 lg:pl-6">
+        <div className="p-4 lg:p-6">
           {children}
         </div>
       </main>

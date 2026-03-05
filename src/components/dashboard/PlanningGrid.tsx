@@ -192,16 +192,16 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
       </div>
 
       {/* Day pills */}
-      <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1 -mx-1 px-1">
+      <div className="grid grid-cols-7 gap-1 mb-4">
         {weekDays.map((d, i) => {
           const sel = i === mobileDayIdx;
           const isToday = d.iso === today;
           const has = filteredShifts.some((s: any) => s.date === d.iso && s.status !== 'cancelled' && s.status !== 'refused');
           return (
             <button key={d.iso} onClick={() => setMobileDayIdx(i)}
-              className={`flex-shrink-0 w-12 py-2 rounded-xl text-center transition-all ${sel ? 'bg-orange-500 text-white shadow-md shadow-orange-200' : isToday ? 'bg-orange-50 text-orange-600 border border-orange-200' : 'bg-white border border-gray-100 text-gray-500'}`}>
+              className={`py-2 rounded-xl text-center transition-all ${sel ? 'bg-orange-500 text-white shadow-md shadow-orange-200' : isToday ? 'bg-orange-50 text-orange-600 border border-orange-200' : 'bg-white border border-gray-100 text-gray-500'}`}>
               <div className="text-[9px] font-medium uppercase opacity-70">{d.dayName}</div>
-              <div className="text-lg font-bold leading-tight">{d.num}</div>
+              <div className="text-base font-bold leading-tight">{d.num}</div>
               {has && !sel && <div className="w-1 h-1 rounded-full bg-orange-400 mx-auto mt-0.5" />}
             </button>
           );
@@ -219,6 +219,13 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
 
       {/* Worker cards */}
       <div className="space-y-2 mb-4">
+        {teamWorkers.length === 0 && (
+          <div className="bg-white rounded-xl border border-dashed border-gray-200 p-6 text-center">
+            <div className="text-3xl mb-2">👥</div>
+            <p className="text-sm font-medium text-gray-600 mb-1">Pas encore d&apos;équipe</p>
+            <p className="text-xs text-gray-400">Ajoutez des flexis pour commencer à planifier</p>
+          </div>
+        )}
         {teamWorkers.map((w: any) => {
           const ws = filteredShifts.filter((s: any) => s.worker_id === w.id && s.date === mobileDay.iso);
           return (
