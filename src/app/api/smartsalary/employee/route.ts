@@ -168,6 +168,11 @@ export async function POST(req: NextRequest) {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
         'Accept-Language': 'fr',
+        'application': 'SmartSalary',
+        'payrollunitid': '308091',
+        'demomode': 'false',
+        'origin': 'https://smartsalary.partena-professional.be',
+        'referer': 'https://smartsalary.partena-professional.be/',
       },
       body: JSON.stringify(payload),
     });
