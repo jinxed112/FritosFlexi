@@ -22,15 +22,98 @@
   var _partenaToken = null;
 
   // Hook fetch pour intercepter le JWT SmartSalary
+  function isValidJWT(t) {
+    if (!t || t.split('.').length !== 3) return false;
+    try {
+      var p = JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+      // Must not be expired and must look like a Partena token
+      var now = Math.floor(Date.now() / 1000);
+      if (p.exp && p.exp < now) return false;
+      var iss = (p.iss || '').toLowerCase();
+      var aud = JSON.stringify(p.aud || '').toLowerCase();
+      return iss.includes('partena') || aud.includes('partena') || aud.includes('smartsalary') || iss.includes('logon');
+    } catch(e) { return false; }
+  }
+
   function captureToken(t) {
-    if (t && t.split('.').length === 3 && t !== _partenaToken) {
+    if (t && isValidJWT(t) && t !== _partenaToken) {
       _partenaToken = t;
       setStatus('✅ Token Partena capturé — sélectionnez les travailleurs', '#22c55e');
       updateBtn();
+      return true;
     }
+    return false;
   }
 
-  // Hook fetch
+  function scanStorage() {
+    // Scan localStorage
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i);
+        var val = localStorage.getItem(key);
+        if (!val) continue;
+        // Direct JWT
+        if (val.startsWith('eyJ') && captureToken(val)) return true;
+        // JSON object containing a token field
+        try {
+          var obj = JSON.parse(val);
+          var fields = ['access_token','accessToken','token','id_token','bearer','Authorization'];
+          for (var f = 0; f < fields.length; f++) {
+            var v = obj[fields[f]];
+            if (v && typeof v === 'string' && v.startsWith('eyJ') && captureToken(v)) return true;
+          }
+          // Nested: obj.body, obj.data, obj.auth
+          var nested = ['body','data','auth','session','user'];
+          for (var n = 0; n < nested.length; n++) {
+            var sub = obj[nested[n]];
+            if (sub && typeof sub === 'object') {
+              for (var f2 = 0; f2 < fields.length; f2++) {
+                var v2 = sub[fields[f2]];
+                if (v2 && typeof v2 === 'string' && v2.startsWith('eyJ') && captureToken(v2)) return true;
+              }
+            }
+          }
+        } catch(e) {}
+      }
+    } catch(e) {}
+
+    // Scan sessionStorage
+    try {
+      for (var j = 0; j < sessionStorage.length; j++) {
+        var skey = sessionStorage.key(j);
+        var sval = sessionStorage.getItem(skey);
+        if (!sval) continue;
+        if (sval.startsWith('eyJ') && captureToken(sval)) return true;
+        try {
+          var sobj = JSON.parse(sval);
+          var sfields = ['access_token','accessToken','token','id_token','bearer'];
+          for (var sf = 0; sf < sfields.length; sf++) {
+            var sv = sobj[sfields[sf]];
+            if (sv && typeof sv === 'string' && sv.startsWith('eyJ') && captureToken(sv)) return true;
+          }
+        } catch(e) {}
+      }
+    } catch(e) {}
+
+    // Scan cookies
+    try {
+      var cookies = document.cookie.split(';');
+      for (var c = 0; c < cookies.length; c++) {
+        var cv = cookies[c].trim().split('=').slice(1).join('=');
+        if (cv && cv.startsWith('eyJ') && captureToken(cv)) return true;
+        try {
+          var decoded = decodeURIComponent(cv);
+          if (decoded.startsWith('eyJ') && captureToken(decoded)) return true;
+          var cobj = JSON.parse(decoded);
+          if (cobj && cobj.access_token && captureToken(cobj.access_token)) return true;
+        } catch(e) {}
+      }
+    } catch(e) {}
+
+    return false;
+  }
+
+  // Hook fetch (for future requests)
   var _orig = window.fetch;
   window.fetch = function (url, opts) {
     try {
@@ -44,23 +127,26 @@
     return _orig.apply(this, arguments);
   };
 
-  // Hook XMLHttpRequest (SmartSalary utilise XHR)
-  var _XHROpen = XMLHttpRequest.prototype.open;
+  // Hook XHR setRequestHeader (wrap on top of Dynatrace agent)
   var _XHRSetHeader = XMLHttpRequest.prototype.setRequestHeader;
-  XMLHttpRequest.prototype.open = function(method, url) {
-    this._fritosUrl = url || '';
-    return _XHROpen.apply(this, arguments);
-  };
   XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
     try {
-      if ((this._fritosUrl || '').includes('partena-professional.be')) {
-        if ((name || '').toLowerCase() === 'authorization' && value && value.startsWith('Bearer ')) {
-          captureToken(value.slice(7));
-        }
+      if ((name || '').toLowerCase() === 'authorization' && (value || '').startsWith('Bearer ')) {
+        captureToken(value.slice(7));
       }
     } catch(e) {}
     return _XHRSetHeader.apply(this, arguments);
   };
+
+  // Scan immediately on load
+  setTimeout(function() {
+    if (!_partenaToken) {
+      var found = scanStorage();
+      if (!found) {
+        setStatus('⚠️ Token non trouvé dans le storage — cliquez 🔄 puis naviguez dans SmartSalary', '#f59e0b');
+      }
+    }
+  }, 300);
 
   // ── Build UI ──
   var panel = document.createElement('div');
