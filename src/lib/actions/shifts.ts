@@ -158,6 +158,7 @@ export async function updateShift(shiftId: string, input: {
   role?: string;
   location_id?: string;
   notes?: string;
+  status?: string;
 }) {
   const supabase = createClient();
 

@@ -67,6 +67,8 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
   const [editLocation, setEditLocation] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const [dimonaRetrying, setDimonaRetrying] = useState(false);
+  const [dimonaRetryResult, setDimonaRetryResult] = useState<'ok' | 'nok' | null>(null);
 
   const [mobileDayIdx, setMobileDayIdx] = useState(() => {
     const todayStr = new Date().toISOString().split('T')[0];
@@ -161,6 +163,18 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
   const handleUpdateShift = () => { if (!editingShift) return; startTransition(async () => { await updateShift(editingShift.id, { start_time: editStart, end_time: editEnd, role: editRole, location_id: editLocation }); setEditingShift(null); router.refresh(); }); };
   const handleDeleteShift = () => { if (!editingShift) return; startTransition(async () => { await deleteShift(editingShift.id); setEditingShift(null); router.refresh(); }); };
   const handleCancelShift = () => { if (!editingShift) return; startTransition(async () => { await cancelShift(editingShift.id); setEditingShift(null); router.refresh(); }); };
+  const handleAcceptShift = () => { if (!editingShift) return; startTransition(async () => { await updateShift(editingShift.id, { status: 'accepted' }); setEditingShift((prev: any) => ({ ...prev, status: 'accepted' })); router.refresh(); }); };
+  const handleRetryDimona = async () => {
+    if (!editingShift) return;
+    setDimonaRetrying(true); setDimonaRetryResult(null);
+    try {
+      const { declareDimonaIn } = await import('@/lib/dimona/actions');
+      const result = await declareDimonaIn(editingShift.id);
+      setDimonaRetryResult(result.success ? 'ok' : 'nok');
+      if (result.success) router.refresh();
+    } catch { setDimonaRetryResult('nok'); }
+    setDimonaRetrying(false);
+  };
 
   const formatH = (h: number) => { const hrs = Math.floor(h); const mins = Math.round((h - hrs) * 60); return mins > 0 ? `${hrs}h${mins.toString().padStart(2, '0')}` : `${hrs}h`; };
 
@@ -605,6 +619,16 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
             </div>
             <div className="p-4 border-t space-y-2">
               <button onClick={handleUpdateShift} disabled={isPending} className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-2.5 font-medium text-sm disabled:opacity-50">{isPending ? 'Sauvegarde...' : 'Enregistrer'}</button>
+              {editingShift.status === 'proposed' && (
+                <button onClick={handleAcceptShift} disabled={isPending} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl py-2.5 font-medium text-sm disabled:opacity-50">
+                  {isPending ? '...' : '✓ Forcer Accepté'}
+                </button>
+              )}
+              {editingShift.status === 'accepted' && (
+                <button onClick={handleRetryDimona} disabled={dimonaRetrying} className={`w-full rounded-xl py-2.5 font-medium text-sm disabled:opacity-50 ${dimonaRetryResult === 'ok' ? 'bg-emerald-100 text-emerald-700' : dimonaRetryResult === 'nok' ? 'bg-red-100 text-red-700' : 'bg-blue-50 hover:bg-blue-100 text-blue-700'}`}>
+                  {dimonaRetrying ? 'Envoi Dimona...' : dimonaRetryResult === 'ok' ? '✓ Dimona envoyée' : dimonaRetryResult === 'nok' ? '✗ Dimona échouée' : '↻ Relancer Dimona'}
+                </button>
+              )}
               <div className="flex gap-2">
                 {editingShift.status !== 'cancelled' && (
                   <button onClick={handleCancelShift} disabled={isPending} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl py-2 text-sm font-medium disabled:opacity-50">Annuler le shift</button>
