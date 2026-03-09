@@ -172,13 +172,15 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify(payload),
     });
 
-    const data = await res.json();
+    const text = await res.text();
+    let data: any = null;
+    try { data = JSON.parse(text); } catch { data = text; }
 
     if (!res.ok) {
-      return NextResponse.json({ error: data }, { status: res.status });
+      return NextResponse.json({ error: data, status: res.status, raw: text }, { status: res.status });
     }
 
-    return NextResponse.json({ success: true, personId: data.result?.personId, data });
+    return NextResponse.json({ success: true, personId: data?.result?.personId, data });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
