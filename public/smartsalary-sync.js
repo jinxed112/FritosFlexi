@@ -276,7 +276,7 @@
         studyLevelId: mapStudy(w.education_level), isDimonaWorker: false,
       },
       contact: {
-        homeAddress: { street: street, number: num, city: w.address_city || '', cityId: null, zipCode: w.address_zip || '', countryId: '150', box: '', region: '' },
+        homeAddress: { street: street, number: num, city: w.address_city || '', zipCode: w.address_zip || '', countryId: '150', box: '', region: '' },
         workPhone: w.phone || '', workEmail: w.email || '', privatePhone: '', privateEmail: '',
       },
       fiscalSituation: { partnerLastName: '', partnerFirstName: '', numberOfChildrenAtCharge: 0, numberOfChildrenDisabled: 0, workerDisabled: false, personsAtCharge: [], civilStatusId: '1', partnerDisabled: false, civilStatusEntryYear: null },
@@ -284,14 +284,14 @@
       messagePRC: '',
       contract: {
         payrollUnitId: '308091', payrollGroupId: isStudent ? '05' : '02',
-        dateInService: dateIn, categoryId: '03', subCategoryId: 'O', regionId: null, activityId: '2',
+        dateInService: dateIn, categoryId: '03', subCategoryId: 'O', activityId: '2',
         isActivePensioner: w.status === 'pensioner',
         activityOfficialJointCommittee: '302.00', activityTechnicalJointCommittee: '302.00.00', activityWorkerClassification: 'Y',
         isDimonaRelevant: true, governanceLevel: null,
         contractPeriods: [{ dateInService: dateIn, dateOutService: dateOut, hoursWorked: null, c32CurrentMonth: '', c32NextMonth: '', dimonaRequested: false, dimonaInvoiceRequested: null, reasonOutServiceId: '04', noticeStartingDate: null, noticeNotificationDate: null }],
         department: { departmentCode: '0000000' }, imposedStartDate: null, endTrialDate: null,
         establishmentUnit: { validityDate: null, validityEndDate: null, address: null }, establishmentUnitId: '1',
-        officialJointCommittee: {}, chosenJointCommittee: {},
+
         wagePackage: {
           salaryInformation: { salaryTypeId: '1', amount: parseFloat(w.hourly_rate) || 12.78, cafeteriaPlanAmount: 0, professionalCategory: '2', effectiveDate: dateIn, officialJointCommittee: '', baremaAutomatic: '', seniorityEntryDate: dateIn, additionalSeniorityMonths: 0, additionalSeniorityYears: 0, governanceLevel: null, flexiJobAmount: 0, baremicSeniorityMonths: 0, baremicSeniorityYears: 0 },
           contractWageComponents: [], payWageComponents: [], companyVehicles: [],
