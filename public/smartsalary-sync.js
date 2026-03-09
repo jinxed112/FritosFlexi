@@ -21,6 +21,33 @@
 
   var _partenaToken = null;
 
+  var LOCATIONS = {
+    '1': { name: 'Jurbise', address: 'Rue de Mons 2, 7050 Jurbise', lat: 50.5261, lng: 3.9083 },
+    '2': { name: 'Boussu',  address: 'Grand Rue 90, 7300 Boussu',   lat: 50.4344, lng: 3.7958 }
+  };
+
+  async function calcDistance(workerStreet, workerZip, workerCity, locationId) {
+    try {
+      var loc = LOCATIONS[locationId];
+      if (!loc) return 0;
+      // Geocode worker address via Nominatim
+      var addr = encodeURIComponent(workerStreet + ', ' + workerZip + ' ' + workerCity + ', Belgium');
+      var geoResp = await _orig.call(window, 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + addr);
+      var geoData = await geoResp.json();
+      if (!geoData || !geoData[0]) return 10; // fallback
+      var wLat = parseFloat(geoData[0].lat);
+      var wLng = parseFloat(geoData[0].lon);
+      // Route distance via OSRM
+      var osrmUrl = 'https://router.project-osrm.org/route/v1/driving/' + wLng + ',' + wLat + ';' + loc.lng + ',' + loc.lat + '?overview=false';
+      var osrmResp = await _orig.call(window, osrmUrl);
+      var osrmData = await osrmResp.json();
+      if (osrmData && osrmData.routes && osrmData.routes[0]) {
+        return Math.round(osrmData.routes[0].distance / 1000); // km
+      }
+    } catch(e) { console.warn('[FritOS] Distance calc failed:', e); }
+    return 10; // fallback 10km
+  }
+
   // Hook fetch pour intercepter le JWT SmartSalary
   function isValidJWT(t) {
     if (!t || t.split('.').length !== 3) return false;
@@ -257,17 +284,35 @@
     return m[l] || '3';
   }
 
-  function buildPayload(w, dateIn, dateOut) {
+  function haversineKm(lat1, lon1, lat2, lon2) {
+    var R = 6371;
+    var dLat = (lat2 - lat1) * Math.PI / 180;
+    var dLon = (lon2 - lon1) * Math.PI / 180;
+    var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+    return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+  }
+
+  var LOCATIONS = {
+    '1': { name: 'Jurbise', lat: 50.526, lon: 3.908 },
+    '2': { name: 'Boussu', lat: 50.434, lon: 3.796 }
+  };
+
+  function buildPayload(w, dateIn, dateOut, estId, distanceKm) {
+    estId = estId || '1';
+    var dist = distanceKm || 10;
     var raw = w.address_street || '';
     var m = raw.match(/^(.*?)\s+(\d+\S*)$/);
     var street = m ? m[1].trim() : raw;
     var num = m ? m[2].trim() : '';
     var niss = (w.niss || '').replace(/[.\-\s]/g, '');
+    var cityId = (w.address_zip && w.address_city) ? (w.address_zip + '#' + w.address_city) : null;
     var isStudent = w.status === 'student';
     var langMap = { 'NL': '2', 'DE': '3', 'EN': '4' };
     return {
       identity: {
-        lastName: w.last_name, firstName: w.first_name, inss: niss,
+        lastName: w.last_name, firstName: w.first_name, personId: null, inss: niss,
         nationalityId: '11',
         languageId: langMap[w.language] || '1',
         genderId: w.gender === 'F' ? '2' : '1',
@@ -276,8 +321,8 @@
         studyLevelId: mapStudy(w.education_level), isDimonaWorker: false,
       },
       contact: {
-        homeAddress: { street: street, number: num, city: w.address_city || '', zipCode: w.address_zip || '', countryId: '150', box: '', region: '' },
-        workPhone: w.phone || '', workEmail: w.email || '', privatePhone: '', privateEmail: '',
+        homeAddress: { street: street, number: num, city: w.address_city || '', cityId: (w.address_zip && w.address_city ? w.address_zip + '#' + w.address_city : null), zipCode: w.address_zip || '', countryId: '150', box: '', region: '' },
+        personId: null, workPhone: w.phone || '', workEmail: '', privatePhone: '', privateEmail: '',
       },
       fiscalSituation: { partnerLastName: '', partnerFirstName: '', numberOfChildrenAtCharge: 0, numberOfChildrenDisabled: 0, workerDisabled: false, personsAtCharge: [], civilStatusId: '1', partnerDisabled: false, civilStatusEntryYear: null },
       bankAccount: { paymentChoice: '4', iban: (w.iban || '').replace(/\s/g, ''), bic: '', agency: '' },
@@ -290,12 +335,18 @@
         isDimonaRelevant: true, governanceLevel: null,
         contractPeriods: [{ dateInService: dateIn, dateOutService: dateOut, hoursWorked: null, c32CurrentMonth: '', c32NextMonth: '', dimonaRequested: false, dimonaInvoiceRequested: null, reasonOutServiceId: '04', noticeStartingDate: null, noticeNotificationDate: null }],
         department: { departmentCode: '0000000' }, imposedStartDate: null, endTrialDate: null,
-        establishmentUnit: { validityDate: null, validityEndDate: null, address: null }, establishmentUnitId: '1',
+        establishmentUnit: { validityDate: null, validityEndDate: null, address: null }, officialJointCommittee: {}, chosenJointCommittee: {}, establishmentUnitId: estId,
 
         wagePackage: {
-          salaryInformation: { salaryTypeId: '1', amount: parseFloat(w.hourly_rate) || 12.78, cafeteriaPlanAmount: 0, professionalCategory: '2', effectiveDate: dateIn, officialJointCommittee: '', baremaAutomatic: '', seniorityEntryDate: dateIn, additionalSeniorityMonths: 0, additionalSeniorityYears: 0, governanceLevel: null, flexiJobAmount: 0, baremicSeniorityMonths: 0, baremicSeniorityYears: 0 },
+          salaryInformation: { salaryTypeId: '2', amount: parseFloat(w.hourly_rate) || 12.78, cafeteriaPlanAmount: 0, professionalCategory: '2', effectiveDate: dateIn, officialJointCommittee: '', baremaAutomatic: '', seniorityEntryDate: dateIn, additionalSeniorityMonths: 0, additionalSeniorityYears: 0, governanceLevel: null, flexiJobAmount: 0, baremicSeniorityMonths: 0, baremicSeniorityYears: 0 },
           contractWageComponents: [], payWageComponents: [], companyVehicles: [],
-          transportCosts: [],
+          transportCosts: (function() {
+          var loc = LOCATIONS[estId] || LOCATIONS['1'];
+          // Approximate worker location from zip code centroid - use Mons area as fallback (50.45, 3.95)
+          var wLat = 50.45, wLon = 3.95;
+          var dist = haversineKm(wLat, wLon, loc.lat, loc.lon);
+          return [{ icon: 'car', label: 'other', category: '1', wageComponentIsMissing: false, type: '0', isChecked: true, details: '', distance: dist, state: 0, price: 0 }];
+        })(),
           transportCostIsAutomaticCalculation: 'NoAutomaticCalculation',
         },
         dateOutService: dateOut, contractualSeniorityStartDate: null, classRiskId: '001',
@@ -340,9 +391,12 @@
       }
       html += '</div>';
       if (sel && !res) {
-        html += '<div style="display:flex;gap:8px;margin-top:8px;padding-left:56px;">';
+        var estId = sel ? (sel.estId || '1') : '1';
+        html += '<div style="display:flex;gap:8px;margin-top:8px;padding-left:56px;flex-wrap:wrap;">';
         html += '<div><div style="font-size:10px;color:#64748b;margin-bottom:2px;">Date début</div><input type="date" value="' + dateIn + '" data-id="' + w.id + '" data-field="dateIn" class="fritos-date" style="font-size:11px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;border-radius:6px;padding:3px 6px;"></div>';
         html += '<div><div style="font-size:10px;color:#64748b;margin-bottom:2px;">Date fin</div><input type="date" value="' + dateOut + '" data-id="' + w.id + '" data-field="dateOut" class="fritos-date" style="font-size:11px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;border-radius:6px;padding:3px 6px;"></div>';
+        html += '<div><div style="font-size:10px;color:#64748b;margin-bottom:2px;">Friterie</div><select data-id="' + w.id + '" data-field="location" class="fritos-date" style="font-size:11px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;border-radius:6px;padding:4px 6px;"><option value="1"' + (estId==='1'?' selected':'') + '>📍 Jurbise</option><option value="2"' + (estId==='2'?' selected':'') + '>📍 Boussu</option></select></div>';
+        html += '<div><div style="font-size:10px;color:#64748b;margin-bottom:2px;">Site</div><select data-id="' + w.id + '" data-field="estId" class="fritos-date" style="font-size:11px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;border-radius:6px;padding:3px 6px;"><option value="1"' + (estId==='1'?' selected':'') + '>🏠 Jurbise</option><option value="2"' + (estId==='2'?' selected':'') + '>🏠 Boussu</option></select></div>';
         html += '</div>';
       }
       if (res && res.error) {
@@ -356,17 +410,19 @@
     el.querySelectorAll('.fritos-check').forEach(function (cb) {
       cb.addEventListener('change', function () {
         var id = this.dataset.id;
-        if (selected[id]) { delete selected[id]; } else { selected[id] = { dateIn: this.dataset.datein, dateOut: this.dataset.dateout }; }
+        if (selected[id]) { delete selected[id]; } else { selected[id] = { dateIn: this.dataset.datein, dateOut: this.dataset.dateout, estId: '1' }; }
         renderList();
       });
     });
 
-    // Bind date events
+    // Bind date/select events
     el.querySelectorAll('.fritos-date').forEach(function (input) {
       input.addEventListener('change', function () {
         var id = this.dataset.id;
         var field = this.dataset.field;
-        if (selected[id]) selected[id][field] = this.value;
+        if (!selected[id]) return;
+        if (field === 'location') { selected[id].estId = this.value; }
+        else { selected[id][field] = this.value; }
       });
     });
 
@@ -388,7 +444,11 @@
 
       setStatus('⏳ Création de ' + w.first_name + ' ' + w.last_name + '...', '#94a3b8');
       try {
-        var payload = buildPayload(w, new Date(sel.dateIn).toISOString(), new Date(sel.dateOut).toISOString());
+        var estId = sel.estId || '1';
+        setStatus('📍 Calcul distance pour ' + w.first_name + ' ' + w.last_name + '...', '#94a3b8');
+        var distKm = await calcDistance(w.address_street, w.address_zip, w.address_city, estId);
+        console.log('[FritOS] Distance:', distKm, 'km vers friterie', estId);
+        var payload = buildPayload(w, new Date(sel.dateIn).toISOString(), new Date(sel.dateOut).toISOString(), estId, distKm);
         console.log('[FritOS] Payload envoyé pour', w.first_name, w.last_name, JSON.stringify(payload, null, 2));
         var res = await _orig.call(window, PARTENA_API, {
           method: 'POST',
