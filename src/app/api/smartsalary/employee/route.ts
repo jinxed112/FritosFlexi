@@ -33,12 +33,12 @@ export async function POST(req: NextRequest) {
       personId: null,
       inss: niss,
       nationalityId: '11', // Belge
-      languageId: worker.langue === 'NL' ? '2' : worker.langue === 'DE' ? '3' : worker.langue === 'EN' ? '4' : '1',
-      genderId: worker.sexe === 'M' ? '1' : worker.sexe === 'F' ? '2' : '1',
+      languageId: (worker.language || worker.langue) === 'NL' ? '2' : (worker.language || worker.langue) === 'DE' ? '3' : (worker.language || worker.langue) === 'EN' ? '4' : '1',
+      genderId: (worker.gender || worker.sexe) === 'M' ? '1' : (worker.gender || worker.sexe) === 'F' ? '2' : '1',
       birthDate: worker.date_of_birth ? new Date(worker.date_of_birth).toISOString() : null,
       birthCountryId: '150', // Belgique
-      birthPlace: worker.lieu_de_naissance || '',
-      studyLevelId: mapStudyLevel(worker['niveau_d\'études']),
+      birthPlace: worker.birth_place || worker.lieu_de_naissance || '',
+      studyLevelId: mapStudyLevel(worker.education_level || worker['niveau_d\'études']),
       isDimonaWorker: false,
     },
     contact: {
