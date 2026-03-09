@@ -181,7 +181,12 @@ export async function sendDimonaIn(
     const payload: DimonaInPayload = {
       employer: { enterpriseNumber: DIMONA_CONFIG.enterpriseNumber },
       worker: { ssin: cleanNiss(workerNiss) },
-      dimonaIn: {
+      dimonaIn: workerType === 'STU' ? {
+        startDate: date,
+        endDate: date,
+        plannedHoursNumber: calcHours(startTime, endTime),
+        features: { workerType, jointCommissionNumber: 'XXX' },
+      } : {
         startDate: date,
         startHour: formatHour(startTime),
         endDate: date,
@@ -264,6 +269,12 @@ function cleanNiss(niss: string): string {
 
 function formatHour(time: string): string {
   return time.replace(/[:.]/g, '').slice(0, 4);
+}
+
+function calcHours(startTime: string, endTime: string): number {
+  const [sh, sm] = startTime.split(':').map(Number);
+  const [eh, em] = endTime.split(':').map(Number);
+  return Math.round(((eh * 60 + em) - (sh * 60 + sm)) / 60);
 }
 
 function sleep(ms: number): Promise<void> {
