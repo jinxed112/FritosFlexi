@@ -296,7 +296,7 @@
         wagePackage: {
           salaryInformation: { salaryTypeId: '1', amount: parseFloat(w.hourly_rate) || 12.78, cafeteriaPlanAmount: 0, professionalCategory: '2', effectiveDate: dateIn, officialJointCommittee: '', baremaAutomatic: '', seniorityEntryDate: dateIn, additionalSeniorityMonths: 0, additionalSeniorityYears: 0, governanceLevel: null, flexiJobAmount: 0, baremicSeniorityMonths: 0, baremicSeniorityYears: 0 },
           contractWageComponents: [], payWageComponents: [], companyVehicles: [],
-          transportCosts: [{ icon: 'car', label: 'other', category: '1', wageComponentIsMissing: false, type: '0', isChecked: true, details: '', distance: 0, state: 0, price: 0 }],
+          transportCosts: [],
           transportCostIsAutomaticCalculation: 'NoAutomaticCalculation',
         },
         dateOutService: dateOut, contractualSeniorityStartDate: null, classRiskId: '001',
