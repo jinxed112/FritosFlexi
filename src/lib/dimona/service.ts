@@ -175,6 +175,7 @@ export async function sendDimonaIn(
   date: string,
   startTime: string,
   endTime: string,
+  workerType: 'FLX' | 'STU' = 'FLX',
 ): Promise<DimonaResult> {
   try {
     const payload: DimonaInPayload = {
@@ -185,7 +186,7 @@ export async function sendDimonaIn(
         startHour: formatHour(startTime),
         endDate: date,
         endHour: formatHour(endTime),
-        features: { workerType: 'FLX', jointCommissionNumber: 'XXX' },
+        features: { workerType, jointCommissionNumber: '302' },
       },
     };
 

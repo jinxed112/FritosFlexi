@@ -25,7 +25,7 @@ export async function declareDimonaIn(shiftId: string): Promise<DimonaResult> {
     .from('shifts')
     .select(`
       id, date, start_time, end_time, location_id, worker_id,
-      flexi_workers!inner(id, niss, first_name, last_name),
+      flexi_workers!inner(id, niss, first_name, last_name, status),
       locations!inner(id, name)
     `)
     .eq('id', shiftId)
@@ -56,6 +56,9 @@ export async function declareDimonaIn(shiftId: string): Promise<DimonaResult> {
     return { success: false, error: `Dimona-In already exists for this shift (status: ${existing.status})` };
   }
 
+  // Determine Dimona worker type based on worker status
+  const workerType = shift.flexi_workers.status === 'student' ? 'STU' : 'FLX';
+
   // Create dimona record as "pending"
   const { data: dimonaRecord, error: insertErr } = await supabase
     .from('dimona_declarations')
@@ -64,7 +67,7 @@ export async function declareDimonaIn(shiftId: string): Promise<DimonaResult> {
       worker_id: shift.worker_id,
       location_id: shift.location_id,
       declaration_type: 'IN',
-      worker_type: 'FLX',
+      worker_type: workerType,
       joint_committee: '302',
       employer_noss: process.env.DIMONA_ENTERPRISE_NUMBER || '1009237290',
       worker_niss: shift.flexi_workers.niss.replace(/[\.\-\s]/g, ''),
@@ -86,6 +89,7 @@ export async function declareDimonaIn(shiftId: string): Promise<DimonaResult> {
     shift.date,
     shift.start_time,
     shift.end_time,
+    workerType,
   );
 
   // Update dimona record with result
