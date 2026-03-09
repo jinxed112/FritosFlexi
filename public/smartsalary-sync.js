@@ -339,14 +339,16 @@
 
         wagePackage: {
           salaryInformation: { salaryTypeId: '2', amount: parseFloat(w.hourly_rate) || 12.78, cafeteriaPlanAmount: 0, professionalCategory: '2', effectiveDate: dateIn, officialJointCommittee: '', baremaAutomatic: '', seniorityEntryDate: dateIn, additionalSeniorityMonths: 0, additionalSeniorityYears: 0, governanceLevel: null, flexiJobAmount: 0, baremicSeniorityMonths: 0, baremicSeniorityYears: 0 },
-          contractWageComponents: [], payWageComponents: [], companyVehicles: [],
-          transportCosts: (function() {
-          var loc = LOCATIONS[estId] || LOCATIONS['1'];
-          // Approximate worker location from zip code centroid - use Mons area as fallback (50.45, 3.95)
-          var wLat = 50.45, wLon = 3.95;
-          var dist = haversineKm(wLat, wLon, loc.lat, loc.lon);
-          return [{ icon: 'car', label: 'other', category: '1', wageComponentIsMissing: false, type: '0', isChecked: true, details: '', distance: dist, state: 0, price: 0 }];
-        })(),
+          payWageComponents: [], companyVehicles: [],
+          transportCosts: [{ icon: 'car', label: 'other', category: '1', wageComponentIsMissing: false, type: '0', isChecked: true, details: '', distance: distanceKm || 10, state: 0, price: 0 }],
+          contractWageComponents: [{
+            reimbursementFrequency: '0', wageComponentId: null,
+            amount: 0, minimumAmount: null, number: 0,
+            constantCode: 'Recurrent', percentage: 0, occurrenceNumber: null,
+            userHasChoice: false, valueA: 'A=0',
+            beginDate: null, endDate: null, isOnlyThisMonth: false, isNotThisMonth: false,
+            payCode: { code: '850.40', type: 'Unidentified', shortDescription: 'Véhicule privée', longDescription: 'Indemnité de transport ( x jours prestés)' }
+          }],
           transportCostIsAutomaticCalculation: 'NoAutomaticCalculation',
         },
         dateOutService: dateOut, contractualSeniorityStartDate: null, classRiskId: '001',
