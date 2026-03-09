@@ -25,20 +25,16 @@
   var _orig = window.fetch;
   window.fetch = function (url, opts) {
     try {
-      if (opts && opts.headers) {
+      var urlStr = (typeof url === 'string') ? url : (url && url.url) ? url.url : '';
+      if (urlStr.includes('api.partena-professional.be') && opts && opts.headers) {
         var h = opts.headers;
         var auth = (h instanceof Headers) ? h.get('authorization') : (h['authorization'] || h['Authorization']);
         if (auth && auth.startsWith('Bearer ')) {
           var t = auth.slice(7);
-          var parts = t.split('.');
-          if (parts.length === 3) {
-            var payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-            var aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud || ''];
-            if (aud.some(function (a) { return (a || '').toLowerCase().includes('smartsalary'); })) {
-              _partenaToken = t;
-              setStatus('✅ Token Partena capturé — sélectionnez les travailleurs', '#22c55e');
-              updateBtn();
-            }
+          if (t.split('.').length === 3 && t !== _partenaToken) {
+            _partenaToken = t;
+            setStatus('✅ Token Partena capturé — sélectionnez les travailleurs', '#22c55e');
+            updateBtn();
           }
         }
       }
@@ -69,7 +65,10 @@
       '<button id="fritos-close" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:22px;line-height:1;padding:0 2px;">×</button>' +
     '</div>' +
     // Status bar
-    '<div id="fritos-status" style="padding:8px 16px;font-size:12px;background:#0f172a;border-bottom:1px solid #1e293b;flex-shrink:0;color:#f59e0b;">⏳ Chargement des travailleurs FritOS...</div>' +
+    '<div style="padding:8px 16px;background:#0f172a;border-bottom:1px solid #1e293b;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+      '<div id="fritos-status" style="font-size:12px;color:#f59e0b;flex:1;">⏳ Chargement des travailleurs FritOS...</div>' +
+      '<button id="fritos-trigger" title="Forcer la capture du token" style="background:#1e3a5f;border:1px solid #334155;color:#60a5fa;font-size:11px;padding:3px 8px;border-radius:6px;cursor:pointer;white-space:nowrap;flex-shrink:0;">🔄 Capturer token</button>' +
+    '</div>' +
     // Worker list
     '<div id="fritos-list" style="overflow-y:auto;flex:1;padding:10px;min-height:60px;"></div>' +
     // Footer
@@ -82,6 +81,36 @@
   document.getElementById('fritos-close').addEventListener('click', function () {
     panel.remove();
     window.fetch = _orig; // restore fetch
+  });
+
+  // Trigger button: click the first worker in the Partena sidebar to force a fetch call
+  document.getElementById('fritos-trigger').addEventListener('click', function () {
+    setStatus('⏳ Tentative de capture...', '#f59e0b');
+    // Try clicking a worker link in the SmartSalary sidebar to trigger an API call
+    var links = document.querySelectorAll('a[href*="/worker"], a[href*="/employee"], li[class*="worker"], li[class*="employee"], .worker-list-item, [class*="workerList"] li, [class*="worker-list"] li');
+    var clicked = false;
+    for (var i = 0; i < links.length; i++) {
+      if (links[i] !== document.activeElement) {
+        links[i].click();
+        clicked = true;
+        break;
+      }
+    }
+    if (!clicked) {
+      // Fallback: try navigating to the next worker
+      var allLinks = document.querySelectorAll('a');
+      for (var j = 0; j < allLinks.length; j++) {
+        var href = allLinks[j].href || '';
+        if (href.includes('worker') || href.includes('employee') || href.includes('travailleur')) {
+          allLinks[j].click();
+          clicked = true;
+          break;
+        }
+      }
+    }
+    if (!clicked) {
+      setStatus('⚠️ Cliquez manuellement sur un travailleur dans la liste', '#f59e0b');
+    }
   });
 
   var workers = [];
