@@ -180,7 +180,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
       const data = await res.json();
       setDimonaRetryResult(data.success ? 'ok' : 'nok');
       if (data.success) router.refresh();
-    } catch { setDimonaRetryResult('nok'); }
+    } catch (e) { console.error('Dimona retry error:', e); setDimonaRetryResult('nok'); }
     setDimonaRetrying(false);
   };
 
