@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useTransition } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { createMultiShifts, updateShift, deleteShift, cancelShift } from '@/lib/actions/shifts';
 import { calculateHours, calculateCost, formatEuro } from '@/utils';
@@ -168,10 +169,17 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
     if (!editingShift) return;
     setDimonaRetrying(true); setDimonaRetryResult(null);
     try {
-      const { declareDimonaIn } = await import('@/lib/dimona/actions');
-      const result = await declareDimonaIn(editingShift.id);
-      setDimonaRetryResult(result.success ? 'ok' : 'nok');
-      if (result.success) router.refresh();
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch('/api/dimona', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ action: 'declare', shiftId: editingShift.id }),
+      });
+      const data = await res.json();
+      setDimonaRetryResult(data.success ? 'ok' : 'nok');
+      if (data.success) router.refresh();
     } catch { setDimonaRetryResult('nok'); }
     setDimonaRetrying(false);
   };
