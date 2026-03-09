@@ -266,9 +266,8 @@
     var isStudent = w.status === 'student';
     var langMap = { 'NL': '2', 'DE': '3', 'EN': '4' };
     return {
-      personId: null,
       identity: {
-        lastName: w.last_name, firstName: w.first_name, personId: null, inss: niss,
+        lastName: w.last_name, firstName: w.first_name, inss: niss,
         nationalityId: '11',
         languageId: langMap[w.language] || '1',
         genderId: w.gender === 'F' ? '2' : '1',
@@ -278,7 +277,7 @@
       },
       contact: {
         homeAddress: { street: street, number: num, city: w.address_city || '', cityId: null, zipCode: w.address_zip || '', countryId: '150', box: '', region: '' },
-        personId: null, workPhone: w.phone || '', workEmail: w.email || '', privatePhone: '', privateEmail: '',
+        workPhone: w.phone || '', workEmail: w.email || '', privatePhone: '', privateEmail: '',
       },
       fiscalSituation: { partnerLastName: '', partnerFirstName: '', numberOfChildrenAtCharge: 0, numberOfChildrenDisabled: 0, workerDisabled: false, personsAtCharge: [], civilStatusId: '1', partnerDisabled: false, civilStatusEntryYear: null },
       bankAccount: { paymentChoice: '4', iban: (w.iban || '').replace(/\s/g, ''), bic: '', agency: '' },
@@ -390,6 +389,7 @@
       setStatus('⏳ Création de ' + w.first_name + ' ' + w.last_name + '...', '#94a3b8');
       try {
         var payload = buildPayload(w, new Date(sel.dateIn).toISOString(), new Date(sel.dateOut).toISOString());
+        console.log('[FritOS] Payload envoyé pour', w.first_name, w.last_name, JSON.stringify(payload, null, 2));
         var res = await _orig.call(window, PARTENA_API, {
           method: 'POST',
           headers: {
