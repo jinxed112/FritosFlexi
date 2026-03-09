@@ -9,7 +9,7 @@ const FRITOS_BASE = 'https://fritos-flexi.vercel.app';
 const PARTENA_API = 'https://api.partena-professional.be/salary-api/api/v1/Employee';
 
 function buildBookmarklet(fritosToken: string): string {
-  // The actual bookmarklet code — runs on smartsalary.partena-professional.be
+  // The actual bookmarklet code — runs on my.partena-professional.be
   const code = `(function() {
   if (document.getElementById('fritos-sync-panel')) { document.getElementById('fritos-sync-panel').remove(); return; }
 
@@ -309,8 +309,8 @@ export default function BookmarkletPage() {
             </div>
             <p className="text-gray-400 text-sm">
               Rendez-vous sur{' '}
-              <a href="https://smartsalary.partena-professional.be" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
-                smartsalary.partena-professional.be
+              <a href="https://my.partena-professional.be" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
+                my.partena-professional.be
               </a>{' '}
               et naviguez vers <strong className="text-gray-300">Travailleurs</strong>.
             </p>

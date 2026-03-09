@@ -8,7 +8,7 @@ const supabase = createClient(
 );
 
 const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': 'https://smartsalary.partena-professional.be',
+  'Access-Control-Allow-Origin': 'https://my.partena-professional.be',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
