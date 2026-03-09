@@ -186,7 +186,7 @@ export async function sendDimonaIn(
         startHour: formatHour(startTime),
         endDate: date,
         endHour: formatHour(endTime),
-        features: { workerType, jointCommissionNumber: '302' },
+        features: { workerType, jointCommissionNumber: 'XXX' },
       },
     };
 
