@@ -24,7 +24,7 @@ export async function declareDimonaIn(shiftId: string): Promise<DimonaResult> {
   const { data: shift, error: shiftErr } = await supabase
     .from('shifts')
     .select(`
-      id, date, start_time, end_time, location_id, worker_id,
+      id, date, start_time, end_time, location_id, worker_id, status,
       flexi_workers!inner(id, niss, first_name, last_name, status),
       locations!inner(id, name)
     `)
