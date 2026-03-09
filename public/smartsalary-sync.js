@@ -311,6 +311,7 @@
     var isStudent = w.status === 'student';
     var langMap = { 'NL': '2', 'DE': '3', 'EN': '4' };
     return {
+      personId: null,
       identity: {
         lastName: w.last_name, firstName: w.first_name, personId: null, inss: niss,
         nationalityId: '11',
@@ -332,7 +333,7 @@
         dateInService: dateIn, categoryId: '03', subCategoryId: 'O', activityId: '2',
         isActivePensioner: w.status === 'pensioner',
         activityOfficialJointCommittee: '302.00', activityTechnicalJointCommittee: '302.00.00', activityWorkerClassification: 'Y',
-        isDimonaRelevant: true, governanceLevel: null,
+        isDimonaRelevant: true, governanceLevel: null, regionId: null,
         contractPeriods: [{ dateInService: dateIn, dateOutService: dateOut, hoursWorked: null, c32CurrentMonth: '', c32NextMonth: '', dimonaRequested: false, dimonaInvoiceRequested: null, reasonOutServiceId: '04', noticeStartingDate: null, noticeNotificationDate: null }],
         department: { departmentCode: '0000000' }, imposedStartDate: null, endTrialDate: null,
         establishmentUnit: { validityDate: null, validityEndDate: null, address: null }, officialJointCommittee: {}, chosenJointCommittee: {}, establishmentUnitId: estId,
@@ -378,6 +379,7 @@
           }],
           transportCostIsAutomaticCalculation: 'NoAutomaticCalculation',
         },
+        schedule: { detailsSchedule: [], scheduleDetailsLoaded: false, realWorkHours: 'PT0S', theoreticalWorkHours: 'PT0S', startDate: null, id: '0000003', name: 'Flexi 4h 2j', fullTime: false },
         dateOutService: dateOut, contractualSeniorityStartDate: null, classRiskId: '001',
         noticeNotificationDate: null, noticeStartingDate: null, scheduleStartDate: null, effectiveDate: null,
         jobTitleHorecaId: null, apprenticeContractNumber: null, contractTypeId: 'B',
@@ -477,7 +479,13 @@
         setStatus('📍 Calcul distance pour ' + w.first_name + ' ' + w.last_name + '...', '#94a3b8');
         var distKm = await calcDistance(w.address_street, w.address_zip, w.address_city, estId);
         console.log('[FritOS] Distance:', distKm, 'km vers friterie', estId);
-        var payload = buildPayload(w, new Date(sel.dateIn).toISOString(), new Date(sel.dateOut).toISOString(), estId, distKm);
+        // Convert date strings to local Belgium midnight (CET = UTC+1 in winter)
+        function toLocalMidnight(dateStr) {
+          var d = new Date(dateStr + 'T00:00:00');
+          // Subtract 1h to get UTC representation of local midnight (CET)
+          return new Date(d.getTime() - 60 * 60 * 1000).toISOString();
+        }
+        var payload = buildPayload(w, toLocalMidnight(sel.dateIn), toLocalMidnight(sel.dateOut), estId, distKm);
         console.log('[FritOS] Payload envoyé pour', w.first_name, w.last_name, JSON.stringify(payload, null, 2));
         var res = await _orig.call(window, PARTENA_API, {
           method: 'POST',
