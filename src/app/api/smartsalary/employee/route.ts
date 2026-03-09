@@ -21,6 +21,12 @@ export async function POST(req: NextRequest) {
   const isStudent = worker.status === 'student';
   const payrollGroupId = isStudent ? '05' : '02';
 
+  // Séparer rue et numéro (ex: "Champ de Fayau 71" → street + number)
+  const streetRaw = worker.address_street || '';
+  const streetMatch = streetRaw.match(/^(.*?)\s+(\d+\S*)$/);
+  const streetName = streetMatch ? streetMatch[1].trim() : streetRaw;
+  const streetNumber = streetMatch ? streetMatch[2].trim() : '';
+
   const niss = (worker.niss || '').replace(/[\.\-\s]/g, '');
   const dateIn = worker.dateInService; // format ISO
   const dateOut = worker.dateOutService;
@@ -43,8 +49,8 @@ export async function POST(req: NextRequest) {
     },
     contact: {
       homeAddress: {
-        street: worker.address_street || '',
-        number: '',
+        street: streetName,
+        number: streetNumber,
         city: worker.address_city || '',
         cityId: null,
         zipCode: worker.address_zip || '',
