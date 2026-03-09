@@ -22,24 +22,44 @@
   var _partenaToken = null;
 
   // Hook fetch pour intercepter le JWT SmartSalary
+  function captureToken(t) {
+    if (t && t.split('.').length === 3 && t !== _partenaToken) {
+      _partenaToken = t;
+      setStatus('✅ Token Partena capturé — sélectionnez les travailleurs', '#22c55e');
+      updateBtn();
+    }
+  }
+
+  // Hook fetch
   var _orig = window.fetch;
   window.fetch = function (url, opts) {
     try {
       var urlStr = (typeof url === 'string') ? url : (url && url.url) ? url.url : '';
-      if (urlStr.includes('api.partena-professional.be') && opts && opts.headers) {
+      if (urlStr.includes('partena-professional.be') && opts && opts.headers) {
         var h = opts.headers;
         var auth = (h instanceof Headers) ? h.get('authorization') : (h['authorization'] || h['Authorization']);
-        if (auth && auth.startsWith('Bearer ')) {
-          var t = auth.slice(7);
-          if (t.split('.').length === 3 && t !== _partenaToken) {
-            _partenaToken = t;
-            setStatus('✅ Token Partena capturé — sélectionnez les travailleurs', '#22c55e');
-            updateBtn();
-          }
-        }
+        if (auth && auth.startsWith('Bearer ')) captureToken(auth.slice(7));
       }
     } catch (e) {}
     return _orig.apply(this, arguments);
+  };
+
+  // Hook XMLHttpRequest (SmartSalary utilise XHR)
+  var _XHROpen = XMLHttpRequest.prototype.open;
+  var _XHRSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+  XMLHttpRequest.prototype.open = function(method, url) {
+    this._fritosUrl = url || '';
+    return _XHROpen.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+    try {
+      if ((this._fritosUrl || '').includes('partena-professional.be')) {
+        if ((name || '').toLowerCase() === 'authorization' && value && value.startsWith('Bearer ')) {
+          captureToken(value.slice(7));
+        }
+      }
+    } catch(e) {}
+    return _XHRSetHeader.apply(this, arguments);
   };
 
   // ── Build UI ──
