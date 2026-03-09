@@ -167,6 +167,8 @@ export async function POST(req: NextRequest) {
     },
   };
 
+  console.log('SmartSalary payload:', JSON.stringify(payload, null, 2));
+
   try {
     const res = await fetch(SS_API, {
       method: 'POST',
