@@ -347,7 +347,7 @@
         html += '</div>';
       }
       if (res && res.error) {
-        html += '<div style="margin-top:6px;font-size:10px;color:#ef4444;font-family:monospace;word-break:break-all;background:#1e293b;padding:4px 8px;border-radius:4px;">' + String(res.error).substring(0, 200) + '</div>';
+        html += '<div style="margin-top:6px;font-size:10px;color:#ef4444;font-family:monospace;word-break:break-all;white-space:pre-wrap;background:#1e293b;padding:6px 8px;border-radius:4px;max-height:120px;overflow-y:auto;">' + String(res.error).substring(0, 500) + '</div>';
       }
       html += '</div>';
     });
@@ -410,6 +410,7 @@
           var personId = data.result.personId || data.result.id || null;
           results[w.id] = { success: true, personId: personId };
           delete selected[w.id];
+          console.log('[FritOS] Créé:', w.first_name, w.last_name, '→ personId:', personId);
 
           // Save personId back to FritOS
           if (personId) {
@@ -422,10 +423,12 @@
             } catch (e) { console.warn('FritOS confirm failed:', e); }
           }
         } else {
-          var errMsg = (data && data.message) ? data.message : (typeof data === 'string' ? data : JSON.stringify(data));
-          results[w.id] = { success: false, error: errMsg };
+          var errMsg = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+          console.error('[FritOS] Erreur', w.first_name, w.last_name, '| HTTP', res.status, '|', errMsg);
+          results[w.id] = { success: false, error: 'HTTP ' + res.status + ' — ' + errMsg };
         }
       } catch (e) {
+        console.error('[FritOS] Exception', w.first_name, w.last_name, e);
         results[w.id] = { success: false, error: e.message };
       }
       renderList();
