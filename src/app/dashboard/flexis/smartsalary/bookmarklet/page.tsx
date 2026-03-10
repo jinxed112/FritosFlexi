@@ -2,37 +2,21 @@
 
 // src/app/dashboard/flexis/smartsalary/bookmarklet/page.tsx
 
-import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
-
 const FRITOS_BASE = 'https://fritos-flexi.vercel.app';
+const API_KEY = 'fritos-sync-2026-mdjambo';
 
-function buildBookmarklet(fritosToken: string): string {
-  // Tiny loader — charge le script hébergé sur Vercel avec le token en paramètre
+function buildBookmarklet(): string {
   const code = `(function(){` +
-    `var t=${JSON.stringify(fritosToken)};` +
+    `var k=${JSON.stringify(API_KEY)};` +
     `var s=document.createElement('script');` +
-    `s.src='${FRITOS_BASE}/smartsalary-sync.js?t='+encodeURIComponent(t)+'&_='+Date.now();` +
+    `s.src='${FRITOS_BASE}/smartsalary-sync.js?k='+encodeURIComponent(k)+'&_='+Date.now();` +
     `document.head.appendChild(s);` +
     `})();`;
   return `javascript:${encodeURIComponent(code)}`;
 }
 
 export default function BookmarkletPage() {
-  const [bookmarkletHref, setBookmarkletHref] = useState('#');
-  const [tokenStatus, setTokenStatus] = useState<'loading' | 'ok' | 'error'>('loading');
-
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.access_token) {
-        setBookmarkletHref(buildBookmarklet(session.access_token));
-        setTokenStatus('ok');
-      } else {
-        setTokenStatus('error');
-      }
-    });
-  }, []);
+  const bookmarkletHref = buildBookmarklet();
 
   return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
@@ -43,19 +27,6 @@ export default function BookmarkletPage() {
           <div className="text-5xl mb-3">📤</div>
           <h1 className="text-2xl font-bold text-white">FritOS Sync</h1>
           <p className="text-gray-400 mt-1 text-sm">Créez vos travailleurs dans SmartSalary en un clic</p>
-        </div>
-
-        {/* Token status */}
-        <div className={`rounded-lg p-3 mb-6 text-sm flex items-center gap-2 ${
-          tokenStatus === 'ok'
-            ? 'bg-green-950 border border-green-800 text-green-400'
-            : tokenStatus === 'error'
-            ? 'bg-red-950 border border-red-800 text-red-400'
-            : 'bg-gray-800 border border-gray-700 text-gray-400'
-        }`}>
-          {tokenStatus === 'ok' && <><span>✅</span> Session intégrée dans le bookmarklet</>}
-          {tokenStatus === 'error' && <><span>❌</span> Session non trouvée — reconnectez-vous d&apos;abord</>}
-          {tokenStatus === 'loading' && <><span>⏳</span> Lecture de la session...</>}
         </div>
 
         {/* Steps */}
@@ -71,22 +42,13 @@ export default function BookmarkletPage() {
               Glissez ce bouton vers votre barre de favoris Chrome{' '}
               <span className="text-gray-500">(Ctrl+Shift+B pour l&apos;afficher)</span>
             </p>
-            {tokenStatus === 'ok' ? (
-              <a
-                href={bookmarkletHref}
-                className="inline-block bg-orange-500 hover:bg-orange-400 text-white font-bold px-5 py-3 rounded-lg cursor-grab active:cursor-grabbing select-none transition-colors"
-                onClick={(e) => e.preventDefault()}
-              >
-                📤 FritOS Sync
-              </a>
-            ) : (
-              <div className="inline-block bg-gray-700 text-gray-500 font-bold px-5 py-3 rounded-lg cursor-not-allowed">
-                📤 FritOS Sync
-              </div>
-            )}
-            <p className="text-gray-600 text-xs mt-3">
-              ⚠️ Le token expire avec votre session. Revenez ici pour réinstaller si le bookmarklet ne fonctionne plus.
-            </p>
+            <a
+              href={bookmarkletHref}
+              className="inline-block bg-orange-500 hover:bg-orange-400 text-white font-bold px-5 py-3 rounded-lg cursor-grab active:cursor-grabbing select-none transition-colors"
+              onClick={(e) => e.preventDefault()}
+            >
+              📤 FritOS Sync
+            </a>
           </div>
 
           {/* Step 2 */}

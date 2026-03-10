@@ -17,7 +17,7 @@
     var scripts = document.querySelectorAll('script[src*="smartsalary-sync"]');
     var lastScript = scripts[scripts.length - 1];
     var url = new URL(lastScript.src);
-    FRITOS_TOKEN = url.searchParams.get('t') || '';
+    FRITOS_TOKEN = url.searchParams.get('k') || '';
   } catch (e) {}
 
   var _partenaToken = null;
