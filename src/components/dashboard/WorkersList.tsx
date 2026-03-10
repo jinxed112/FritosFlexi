@@ -35,6 +35,9 @@ export default function WorkersList({ workers, locations }: Props) {
   const [tempPassword, setTempPassword] = useState('');
   const [resetInfo, setResetInfo] = useState<{ name: string; password: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [createStatus, setCreateStatus] = useState<string>('other');
+
+  const defaultRateForStatus = (status: string) => status === 'student' ? 15.21 : 12.78;
   const [isPending, startTransition] = useTransition();
 
   // Search & filters
@@ -94,7 +97,7 @@ export default function WorkersList({ workers, locations }: Props) {
         first_name: formData.get('first_name') as string,
         last_name: formData.get('last_name') as string,
         email: formData.get('email') as string,
-        hourly_rate: parseFloat(formData.get('hourly_rate') as string) || 12.53,
+        hourly_rate: parseFloat(formData.get('hourly_rate') as string) || defaultRateForStatus(formData.get('status') as string),
         status: formData.get('status') as any,
       });
       if (result.tempPassword) setTempPassword(result.tempPassword);
@@ -192,7 +195,7 @@ export default function WorkersList({ workers, locations }: Props) {
   const assignTotalCost = assignSelectedDays.reduce((sum, iso) => {
     const sc = assignSchedules[iso] || { start: '17:00', end: '21:30' };
     const h = calculateHours(sc.start + ':00', sc.end + ':00');
-    return sum + calculateCost(h, selectedWorker?.hourly_rate || 12.53).total_cost;
+    return sum + calculateCost(h, selectedWorker?.hourly_rate || 12.78).total_cost;
   }, 0);
 
   const canAssign = selectedWorker?.is_active && selectedWorker?.profile_complete;
@@ -202,7 +205,7 @@ export default function WorkersList({ workers, locations }: Props) {
       {/* ============ HEADER ============ */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Mon Équipe</h1>
-        <button onClick={() => { setShowCreateModal(true); setTempPassword(''); }}
+        <button onClick={() => { setShowCreateModal(true); setTempPassword(''); setCreateStatus('other'); }}
           className="bg-orange-500 hover:bg-orange-600 text-white px-3 sm:px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-1.5">
           <UserPlus size={16} /> <span className="hidden sm:inline">Nouveau flexi</span><span className="sm:hidden">Ajouter</span>
         </button>
@@ -723,11 +726,13 @@ export default function WorkersList({ workers, locations }: Props) {
                   <input type="email" name="email" required className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" /></div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><label className="block text-xs font-medium text-gray-500 mb-1">Taux horaire (€)</label>
-                    <input type="number" name="hourly_rate" defaultValue="12.53" step="0.01" className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" /></div>
+                    <input type="number" name="hourly_rate" value={defaultRateForStatus(createStatus)} onChange={() => {}} step="0.01" className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-blue-50 text-blue-800 font-medium" /></div>
                   <div><label className="block text-xs font-medium text-gray-500 mb-1">Statut</label>
-                    <select name="status" className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white">
-                      <option value="student">Étudiant</option><option value="pensioner">Pensionné</option>
-                      <option value="employee">Salarié</option><option value="other">Autre</option>
+                    <select name="status" value={createStatus} onChange={(e) => setCreateStatus(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white">
+                      <option value="other">Flexi (autre)</option>
+                      <option value="student">Étudiant</option>
+                      <option value="pensioner">Pensionné</option>
+                      <option value="employee">Salarié</option>
                     </select></div>
                 </div>
                 <button type="submit" disabled={isPending}
