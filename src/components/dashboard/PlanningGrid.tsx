@@ -44,12 +44,17 @@ function shiftTotalCost(
   locationName: string | undefined,
   homeLat: number | null | undefined,
   homeLng: number | null | undefined
-): number {
+): { salary: number; transport: number; total: number } {
   const { total_cost } = calculateCost(hours, hourlyRate, isSundayOrHol, workerStatus as any);
   const transport = locationName
     ? calcTransportAllowance(homeLat ?? null, homeLng ?? null, locationName)
     : null;
-  return Math.round((total_cost + (transport?.allowance ?? 0)) * 100) / 100;
+  const transportCost = Math.round((transport?.allowance ?? 0) * 100) / 100;
+  return {
+    salary: Math.round(total_cost * 100) / 100,
+    transport: transportCost,
+    total: Math.round((total_cost + transportCost) * 100) / 100,
+  };
 }
 
 const STATUS_STYLES: Record<string, { bg: string; border: string; text: string; label: string }> = {
@@ -134,17 +139,20 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
 
   const dayStats = weekDays.map((d) => {
     const dayShifts = filteredShifts.filter((s: any) => s.date === d.iso && s.status !== 'cancelled' && s.status !== 'refused');
-    let totalHours = 0, totalCost = 0;
+    let totalHours = 0, totalSalary = 0, totalTransport = 0;
     const workerSet = new Set<string>();
     dayShifts.forEach((s: any) => {
       const h = calculateHours(s.start_time, s.end_time);
-      totalHours += h; totalCost += shiftTotalCost(h, s.flexi_workers?.hourly_rate || getDefaultRate(s.flexi_workers?.status), s.flexi_workers?.status || 'other', checkSundayOrHoliday(s.date), s.locations?.name, s.flexi_workers?.home_lat, s.flexi_workers?.home_lng);
+      const c = shiftTotalCost(h, s.flexi_workers?.hourly_rate || getDefaultRate(s.flexi_workers?.status), s.flexi_workers?.status || 'other', checkSundayOrHoliday(s.date), s.locations?.name, s.flexi_workers?.home_lat, s.flexi_workers?.home_lng);
+      totalHours += h; totalSalary += c.salary; totalTransport += c.transport;
       if (s.worker_id) workerSet.add(s.worker_id);
     });
-    return { hours: totalHours, employees: workerSet.size, cost: totalCost };
+    return { hours: totalHours, employees: workerSet.size, salary: Math.round(totalSalary * 100) / 100, transport: Math.round(totalTransport * 100) / 100, cost: Math.round((totalSalary + totalTransport) * 100) / 100 };
   });
   const totalHours = dayStats.reduce((s, d) => s + d.hours, 0);
-  const totalCost = dayStats.reduce((s, d) => s + d.cost, 0);
+  const totalSalary = dayStats.reduce((s, d) => s + d.salary, 0);
+  const totalTransport = dayStats.reduce((s, d) => s + d.transport, 0);
+  const totalCost = Math.round((totalSalary + totalTransport) * 100) / 100;
 
   const addToTeam = (id: string) => setTeamIds((p) => [...p, id]);
   const removeFromTeam = (id: string) => setTeamIds((p) => p.filter((x) => x !== id));
@@ -394,7 +402,17 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
               </tr>
               <tr className="bg-gray-50/50 border-b border-gray-200">
                 <td className="px-4 py-1.5 text-[11px] text-gray-400 font-medium sticky left-0 bg-gray-50/50 z-10">Coûts</td>
-                {dayStats.map((s, i) => <td key={i} className={`text-center text-[11px] text-gray-500 px-2 py-1.5 ${weekDays[i].iso === today ? 'bg-orange-50/50' : ''}`}>{formatEuro(s.cost)}</td>)}
+                {dayStats.map((s, i) => (
+                  <td key={i} className={`text-center px-2 py-1.5 ${weekDays[i].iso === today ? 'bg-orange-50/50' : ''}`}>
+                    {s.cost > 0 ? (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[11px] font-medium text-gray-600">{formatEuro(s.cost)}</span>
+                        <span className="text-[10px] text-gray-400">sal. {formatEuro(s.salary)}</span>
+                        {s.transport > 0 && <span className="text-[10px] text-blue-400">dépl. {formatEuro(s.transport)}</span>}
+                      </div>
+                    ) : <span className="text-[11px] text-gray-400">—</span>}
+                  </td>
+                ))}
               </tr>
               <tr className="border-b border-gray-100">
                 <td colSpan={8} className="px-4 py-2 text-xs font-bold text-gray-700 bg-gray-50">
@@ -405,7 +423,8 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
               {teamWorkers.map((w: any) => {
                 const wShifts = filteredShifts.filter((s: any) => s.worker_id === w.id);
                 const wH = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused').reduce((sum: number, s: any) => sum + calculateHours(s.start_time, s.end_time), 0);
-                const wC = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused').reduce((sum: number, s: any) => sum + shiftTotalCost(calculateHours(s.start_time, s.end_time), w.hourly_rate || getDefaultRate(w.status), w.status || 'other', checkSundayOrHoliday(s.date), s.locations?.name, w.home_lat, w.home_lng), 0);
+                const wBreakdown = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused').reduce((acc: { salary: number; transport: number; total: number }, s: any) => { const c = shiftTotalCost(calculateHours(s.start_time, s.end_time), w.hourly_rate || getDefaultRate(w.status), w.status || 'other', checkSundayOrHoliday(s.date), s.locations?.name, w.home_lat, w.home_lng); return { salary: acc.salary + c.salary, transport: acc.transport + c.transport, total: acc.total + c.total }; }, { salary: 0, transport: 0, total: 0 });
+                const wC = wBreakdown.total;
                 return (
                   <tr key={w.id} className="border-b border-gray-50 hover:bg-gray-50/30">
                     <td className="px-4 py-3 align-top sticky left-0 bg-white z-10">
@@ -415,7 +434,14 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                           <div className="font-medium text-gray-800 text-sm truncate">{w.first_name} {w.last_name}</div>
                           <div className="flex items-center gap-1 mt-0.5">
                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${w.status === 'student' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>{w.status === 'student' ? 'Étud.' : 'Flexi'}</span>
-                            {wH > 0 && <span className="text-[10px] text-gray-400">{formatH(wH)} · {formatEuro(wC)}</span>}
+                            {wH > 0 && (
+                              <div className="flex flex-col gap-0">
+                                <span className="text-[10px] text-gray-400">{formatH(wH)} · <span className="text-gray-500 font-medium">{formatEuro(wC)}</span></span>
+                                {wBreakdown.transport > 0 && (
+                                  <span className="text-[10px] text-gray-400">sal. {formatEuro(wBreakdown.salary)} · <span className="text-blue-400">dépl. {formatEuro(wBreakdown.transport)}</span></span>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -459,7 +485,9 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
           </div>
           <div className="flex items-center gap-6 text-gray-500">
             <span>Heures : <strong className="text-gray-700">{formatH(totalHours)}</strong></span>
-            <span>Coût : <strong className="text-gray-700">{formatEuro(totalCost)}</strong></span>
+            <span>Salaires : <strong className="text-gray-700">{formatEuro(totalSalary)}</strong></span>
+            {totalTransport > 0 && <span>Déplacements : <strong className="text-blue-500">{formatEuro(totalTransport)}</strong></span>}
+            <span>Total : <strong className="text-gray-900">{formatEuro(totalCost)}</strong></span>
           </div>
         </div>
       </div>
