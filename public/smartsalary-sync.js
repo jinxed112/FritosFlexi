@@ -11,6 +11,7 @@
   var FRITOS_TOKEN = '';
   var FRITOS_BASE = 'https://fritos-flexi.vercel.app';
   var PARTENA_API = 'https://api.partena-professional.be/salary-api/api/v1/Employee';
+  var GROUPCAL_API = 'https://api.partena-professional.be/salary-api/api/v1/PayrollUnits/308091/GroupCalendar';
 
   try {
     var scripts = document.querySelectorAll('script[src*="smartsalary-sync"]');
@@ -206,7 +207,10 @@
     '<div id="fritos-list" style="overflow-y:auto;flex:1;padding:10px;min-height:60px;"></div>' +
     // Footer
     '<div style="padding:10px 12px;border-top:1px solid #334155;background:#0f172a;flex-shrink:0;">' +
-      '<button id="fritos-btn" disabled style="width:100%;padding:10px;background:#334155;color:#64748b;border:none;border-radius:8px;font-weight:600;font-size:13px;cursor:not-allowed;">Synchroniser vers SmartSalary</button>' +
+      '<div style="display:flex;gap:8px;">' +
+      '<button id="fritos-btn" disabled style="flex:1;padding:10px;background:#334155;color:#64748b;border:none;border-radius:8px;font-weight:600;font-size:13px;cursor:not-allowed;">👤 Créer workers</button>' +
+      '<button id="fritos-hours-btn" disabled style="flex:1;padding:10px;background:#334155;color:#64748b;border:none;border-radius:8px;font-weight:600;font-size:13px;cursor:not-allowed;">⏱ Sync heures</button>' +
+      '</div>' +
     '</div>';
 
   document.body.appendChild(panel);
@@ -540,9 +544,11 @@
       nFail ? '#f59e0b' : '#22c55e'
     );
     btn.disabled = false;
-    btn.style.background = '#3b82f6';
+    btn.style.background = '#22c55e';
     btn.style.color = '#fff';
-    btn.textContent = 'Synchroniser';
+    btn.textContent = '👤 Créer workers';
+    var hbtn = document.getElementById('fritos-hours-btn');
+    if (hbtn) { hbtn.disabled = false; hbtn.style.background = '#3b82f6'; hbtn.style.color = '#fff'; hbtn.style.cursor = 'pointer'; }
   });
 
   // Load workers from FritOS
@@ -561,5 +567,85 @@
     } catch (e) {
       setStatus('❌ Erreur chargement FritOS: ' + e.message, '#ef4444');
     }
-  })();
+    // ── Sync heures vers GroupCalendar ──────────────────────────────────
+  document.getElementById('fritos-hours-btn').addEventListener('click', async function () {
+    if (!_partenaToken) return;
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = '⏳ Chargement prestations...';
+
+    try {
+      // Récupère les prestations validées depuis FritOS
+      var now = new Date();
+      var year = now.getFullYear();
+      var month = now.getMonth() + 1;
+      var resp = await _orig.call(window, FRITOS_BASE + '/api/smartsalary/prestations?year=' + year + '&month=' + month, {
+        headers: { 'x-fritos-auth': FRITOS_TOKEN }
+      });
+      var data = await resp.json();
+
+      if (!data.TimesheetMonthForWorkers || !data.TimesheetMonthForWorkers.length) {
+        setStatus('⚠️ Aucune prestation validée trouvée pour ' + month + '/' + year, '#f59e0b');
+        btn.disabled = false;
+        btn.textContent = '⏱ Sync heures';
+        return;
+      }
+
+      var workers = data.TimesheetMonthForWorkers;
+      setStatus('📤 Envoi de ' + workers.length + ' worker(s) vers GroupCalendar...', '#94a3b8');
+      console.log('[FritOS] GroupCalendar payload:', JSON.stringify({ TimesheetMonthForWorkers: workers }, null, 2));
+
+      // Envoie par groupe (05 étudiants, 04 flexi) séparément
+      var groups = {};
+      workers.forEach(function(w) {
+        var g = w.payrollGroupContext;
+        if (!groups[g]) groups[g] = [];
+        groups[g].push(w);
+      });
+
+      var allOk = true;
+      for (var g in groups) {
+        var payload = { TimesheetMonthForWorkers: groups[g] };
+        var r = await _orig.call(window, GROUPCAL_API, {
+          method: 'PUT',
+          headers: {
+            'Authorization': 'Bearer ' + _partenaToken,
+            'Content-Type': 'application/json',
+            'Accept-Language': 'fr',
+            'application': 'SmartSalary',
+            'payrollunitid': '308091',
+            'demomode': 'false',
+            'origin': 'https://smartsalary.partena-professional.be',
+            'referer': 'https://smartsalary.partena-professional.be/'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!r.ok) {
+          var errText = await r.text();
+          console.error('[FritOS] GroupCalendar groupe ' + g + ' HTTP ' + r.status, errText);
+          setStatus('❌ Erreur groupe ' + g + ' : HTTP ' + r.status, '#ef4444');
+          allOk = false;
+        } else {
+          console.log('[FritOS] GroupCalendar groupe ' + g + ' OK');
+        }
+      }
+
+      if (allOk) {
+        var total = workers.reduce(function(acc, w) { return acc + w.timesheetMonth.length; }, 0);
+        setStatus('✅ ' + total + ' jour(s) synchronisé(s) vers Partena !', '#22c55e');
+        btn.textContent = '✅ Heures synchronisées';
+      } else {
+        btn.disabled = false;
+        btn.textContent = '⏱ Sync heures';
+      }
+
+    } catch (e) {
+      setStatus('❌ Erreur sync heures: ' + e.message, '#ef4444');
+      btn.disabled = false;
+      btn.textContent = '⏱ Sync heures';
+    }
+  });
+
+})();
 })();
