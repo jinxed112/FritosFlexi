@@ -555,7 +555,7 @@
   (async function () {
     try {
       var res = await _orig.call(window, FRITOS_BASE + '/api/smartsalary/pending', {
-        headers: { 'Authorization': 'Bearer ' + FRITOS_TOKEN }
+        headers: { 'x-fritos-auth': FRITOS_TOKEN }
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       var data = await res.json();
