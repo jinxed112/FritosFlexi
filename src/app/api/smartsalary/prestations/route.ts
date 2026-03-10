@@ -1,6 +1,5 @@
 // src/app/api/smartsalary/prestations/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': 'https://my.partena-professional.be',
@@ -45,7 +44,13 @@ export async function GET(req: NextRequest) {
   const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
   const periodEnd   = new Date(year, month, 0).toISOString().split('T')[0]; // dernier jour du mois
 
-  const supabase = createClient();
+  // Auth via JWT passé en header (pas de cookie dispo depuis my.partena-professional.be)
+  const { createClient: createSupabaseClient } = await import('@supabase/supabase-js');
+  const supabase = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { global: { headers: { Authorization: `Bearer ${authHeader}` } } }
+  );
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401, headers: CORS_HEADERS });
