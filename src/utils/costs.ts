@@ -1,12 +1,22 @@
-import { FLEXI_CONSTANTS, type CostCalculation } from '@/types';
+import { FLEXI_CONSTANTS, type CostCalculation, type WorkerStatus } from '@/types';
+
+// Taux de cotisation patronale selon le statut du worker
+// Flexi-job / autres   : 28%   (cotisation spéciale flexi-job)
+// Étudiant dans 475h   : 5,42% (cotisation réduite étudiants)
+const EMPLOYER_RATE_STUDENT = 0.0542;
 
 /**
- * Calculate the full cost breakdown for a shift
+ * Calculate the full cost breakdown for a shift.
+ * @param workerStatus  'student' | 'pensioner' | 'employee' | 'other'
+ *                      Determines the employer contribution rate:
+ *                      - student → 5.42% (reduced rate within 475h quota)
+ *                      - all others → 28% (standard flexi-job rate)
  */
 export function calculateCost(
   hours: number,
   hourlyRate: number,
-  isSundayOrHoliday: boolean = false
+  isSundayOrHoliday: boolean = false,
+  workerStatus: WorkerStatus = 'other'
 ): CostCalculation {
   const baseSalary = hours * hourlyRate;
 
@@ -15,7 +25,13 @@ export function calculateCost(
     : 0;
 
   const totalSalary = baseSalary + sundayPremium;
-  const employerContribution = totalSalary * FLEXI_CONSTANTS.EMPLOYER_CONTRIBUTION_RATE;
+
+  // Taux patronal selon le statut
+  const employerRate = workerStatus === 'student'
+    ? EMPLOYER_RATE_STUDENT
+    : FLEXI_CONSTANTS.EMPLOYER_CONTRIBUTION_RATE;
+
+  const employerContribution = totalSalary * employerRate;
   const totalCost = totalSalary + employerContribution;
   const nowjobsEquivalent = hours * FLEXI_CONSTANTS.NOWJOBS_HOURLY_COST;
   const savings = nowjobsEquivalent - totalCost;
@@ -43,16 +59,16 @@ export function calculateHours(startTime: string, endTime: string): number {
 }
 
 /**
- * Get the effective hourly rate based on date
+ * Get the effective hourly rate based on worker status (and optional custom rate).
  */
-export function getEffectiveRate(date: string, customRate?: number): number {
+export function getEffectiveRate(
+  workerStatus: WorkerStatus = 'other',
+  customRate?: number
+): number {
   if (customRate) return customRate;
-  const d = new Date(date);
-  // Rate increase on March 1, 2026
-  if (d >= new Date('2026-03-01')) {
-    return FLEXI_CONSTANTS.MIN_HOURLY_RATE_MARCH_2026;
-  }
-  return FLEXI_CONSTANTS.MIN_HOURLY_RATE;
+  return workerStatus === 'student'
+    ? FLEXI_CONSTANTS.MIN_HOURLY_RATE_STUDENT
+    : FLEXI_CONSTANTS.MIN_HOURLY_RATE;
 }
 
 /**

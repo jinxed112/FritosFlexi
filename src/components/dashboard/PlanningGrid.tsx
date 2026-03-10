@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { createMultiShifts, updateShift, deleteShift, cancelShift } from '@/lib/actions/shifts';
 import { calculateHours, calculateCost, formatEuro } from '@/utils';
+import { getDefaultRate } from '@/types';
 import { Plus, X, ChevronLeft, ChevronRight, Users, Clock, Search, MapPin } from 'lucide-react';
 import Link from 'next/link';
 
@@ -98,7 +99,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
     const workerSet = new Set<string>();
     dayShifts.forEach((s: any) => {
       const h = calculateHours(s.start_time, s.end_time);
-      totalHours += h; totalCost += calculateCost(h, s.flexi_workers?.hourly_rate || 12.53).total_cost;
+      totalHours += h; totalCost += calculateCost(h, s.flexi_workers?.hourly_rate || getDefaultRate(s.flexi_workers?.status), false, s.flexi_workers?.status).total_cost;
       if (s.worker_id) workerSet.add(s.worker_id);
     });
     return { hours: totalHours, employees: workerSet.size, cost: totalCost };
@@ -365,7 +366,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
               {teamWorkers.map((w: any) => {
                 const wShifts = filteredShifts.filter((s: any) => s.worker_id === w.id);
                 const wH = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused').reduce((sum: number, s: any) => sum + calculateHours(s.start_time, s.end_time), 0);
-                const wC = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused').reduce((sum: number, s: any) => sum + calculateCost(calculateHours(s.start_time, s.end_time), w.hourly_rate || 12.53).total_cost, 0);
+                const wC = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused').reduce((sum: number, s: any) => sum + calculateCost(calculateHours(s.start_time, s.end_time), w.hourly_rate || getDefaultRate(w.status), false, w.status).total_cost, 0);
                 return (
                   <tr key={w.id} className="border-b border-gray-50 hover:bg-gray-50/30">
                     <td className="px-4 py-3 align-top sticky left-0 bg-white z-10">
@@ -622,7 +623,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
               </div>
               <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl text-sm">
                 <span className="text-gray-500">Coût estimé</span>
-                <span className="font-bold text-gray-800">{formatEuro(calculateCost(calculateHours(editStart + ':00', editEnd + ':00'), editingShift.flexi_workers?.hourly_rate || 12.53).total_cost)}</span>
+                <span className="font-bold text-gray-800">{formatEuro(calculateCost(calculateHours(editStart + ':00', editEnd + ':00'), editingShift.flexi_workers?.hourly_rate || getDefaultRate(editingShift.flexi_workers?.status), false, editingShift.flexi_workers?.status).total_cost)}</span>
               </div>
             </div>
             <div className="p-4 border-t space-y-2">
