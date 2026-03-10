@@ -5,10 +5,19 @@
 // Source : horecabrussels.be – en vigueur depuis le 01/01/2026
 export const KM_RATE_CP302 = 0.4326; // €/km, aller simple uniquement
 
+// ─── Taux horaires minimums légaux CP 302 ──────────────────────────────────
+// Flexi-job : taux forfaitaire horeca, pécule vacances 7,67% inclus, brut = net
+// En vigueur depuis le 01/03/2026
+export const FLEXI_MIN_RATE = 12.78;
+
+// Étudiant : barème sectoriel CP 302 catégorie I/II, 0 années de fonction
+// En vigueur depuis le 01/01/2026 (indexation +2,189%) — brut avant solidarité 2,71%
+export const STUDENT_MIN_RATE = 15.21;
+
 // ─── Coordonnées GPS des locations ─────────────────────────────────────────
 export const LOCATION_COORDS: Record<string, { lat: number; lng: number }> = {
-  Jurbise: { lat: 50.526,  lng: 3.908 },
-  Boussu:  { lat: 50.4337, lng: 3.7965 },
+  'MDjambo Jurbise': { lat: 50.526,  lng: 3.908 },
+  'MDjambo Boussu':  { lat: 50.4337, lng: 3.7965 },
 };
 
 // ─── Haversine ──────────────────────────────────────────────────────────────
