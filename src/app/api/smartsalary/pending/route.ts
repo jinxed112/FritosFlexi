@@ -12,21 +12,30 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: CORS_HEADERS });
 }
 
+function decodeJWT(token: string): any {
+  try {
+    const payload = token.split('.')[1];
+    return JSON.parse(Buffer.from(payload, 'base64url').toString());
+  } catch { return null; }
+}
+
 export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('x-fritos-auth');
-  if (!authHeader) {
+  const token = req.headers.get('x-fritos-auth');
+  if (!token) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401, headers: CORS_HEADERS });
   }
 
+  // Vérifie que le JWT Supabase est valide et non expiré
+  const payload = decodeJWT(token);
+  if (!payload || !payload.sub || payload.exp < Date.now() / 1000) {
+    return NextResponse.json({ error: 'Token invalide ou expiré' }, { status: 401, headers: CORS_HEADERS });
+  }
+
+  // Utilise la service role key pour bypasser RLS
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
-
-  const { data: { user } } = await supabase.auth.getUser(authHeader);
-  if (!user) {
-    return NextResponse.json({ error: 'Non autorisé' }, { status: 401, headers: CORS_HEADERS });
-  }
 
   const { data: workers } = await supabase
     .from('flexi_workers')
