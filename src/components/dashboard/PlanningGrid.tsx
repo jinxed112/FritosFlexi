@@ -6,12 +6,51 @@ import { useRouter } from 'next/navigation';
 import { createMultiShifts, updateShift, deleteShift, cancelShift } from '@/lib/actions/shifts';
 import { calculateHours, calculateCost, formatEuro } from '@/utils';
 import { getDefaultRate } from '@/types';
+import { calcTransportAllowance } from '@/lib/transport';
 import { Plus, X, ChevronLeft, ChevronRight, Users, Clock, Search, MapPin } from 'lucide-react';
 import Link from 'next/link';
 
 const DAY_NAMES_SHORT = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'];
 const DAY_NAMES_FULL = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
 const MONTH_NAMES = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+
+// Jours fériés belges fixes + variables 2026
+// À mettre à jour chaque année pour les fériés variables (Pâques, Ascension, Pentecôte)
+const BELGIAN_HOLIDAYS_2026 = new Set([
+  '2026-01-01', // Nouvel An
+  '2026-04-06', // Lundi de Pâques
+  '2026-05-01', // Fête du Travail
+  '2026-05-14', // Ascension
+  '2026-05-25', // Lundi de Pentecôte
+  '2026-07-21', // Fête nationale
+  '2026-08-15', // Assomption
+  '2026-11-01', // Toussaint
+  '2026-11-11', // Armistice
+  '2026-12-25', // Noël
+]);
+
+/** Retourne true si la date est un dimanche ou un jour férié belge */
+function checkSundayOrHoliday(dateStr: string): boolean {
+  const d = new Date(dateStr);
+  return d.getDay() === 0 || BELGIAN_HOLIDAYS_2026.has(dateStr);
+}
+
+/** Coût total employeur d'un shift : salaire + cotisation patronale + transport */
+function shiftTotalCost(
+  hours: number,
+  hourlyRate: number,
+  workerStatus: string,
+  isSundayOrHol: boolean,
+  locationName: string | undefined,
+  homeLat: number | null | undefined,
+  homeLng: number | null | undefined
+): number {
+  const { total_cost } = calculateCost(hours, hourlyRate, isSundayOrHol, workerStatus as any);
+  const transport = locationName
+    ? calcTransportAllowance(homeLat ?? null, homeLng ?? null, locationName)
+    : null;
+  return Math.round((total_cost + (transport?.allowance ?? 0)) * 100) / 100;
+}
 
 const STATUS_STYLES: Record<string, { bg: string; border: string; text: string; label: string }> = {
   draft: { bg: 'bg-gray-100', border: 'border-gray-200', text: 'text-gray-600', label: 'Brouillon' },
@@ -99,7 +138,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
     const workerSet = new Set<string>();
     dayShifts.forEach((s: any) => {
       const h = calculateHours(s.start_time, s.end_time);
-      totalHours += h; totalCost += calculateCost(h, s.flexi_workers?.hourly_rate || getDefaultRate(s.flexi_workers?.status), false, s.flexi_workers?.status).total_cost;
+      totalHours += h; totalCost += shiftTotalCost(h, s.flexi_workers?.hourly_rate || getDefaultRate(s.flexi_workers?.status), s.flexi_workers?.status || 'other', checkSundayOrHoliday(s.date), s.locations?.name, s.flexi_workers?.home_lat, s.flexi_workers?.home_lng);
       if (s.worker_id) workerSet.add(s.worker_id);
     });
     return { hours: totalHours, employees: workerSet.size, cost: totalCost };
@@ -366,7 +405,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
               {teamWorkers.map((w: any) => {
                 const wShifts = filteredShifts.filter((s: any) => s.worker_id === w.id);
                 const wH = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused').reduce((sum: number, s: any) => sum + calculateHours(s.start_time, s.end_time), 0);
-                const wC = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused').reduce((sum: number, s: any) => sum + calculateCost(calculateHours(s.start_time, s.end_time), w.hourly_rate || getDefaultRate(w.status), false, w.status).total_cost, 0);
+                const wC = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused').reduce((sum: number, s: any) => sum + shiftTotalCost(calculateHours(s.start_time, s.end_time), w.hourly_rate || getDefaultRate(w.status), w.status || 'other', checkSundayOrHoliday(s.date), s.locations?.name, w.home_lat, w.home_lng), 0);
                 return (
                   <tr key={w.id} className="border-b border-gray-50 hover:bg-gray-50/30">
                     <td className="px-4 py-3 align-top sticky left-0 bg-white z-10">
@@ -623,7 +662,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
               </div>
               <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl text-sm">
                 <span className="text-gray-500">Coût estimé</span>
-                <span className="font-bold text-gray-800">{formatEuro(calculateCost(calculateHours(editStart + ':00', editEnd + ':00'), editingShift.flexi_workers?.hourly_rate || getDefaultRate(editingShift.flexi_workers?.status), false, editingShift.flexi_workers?.status).total_cost)}</span>
+                <span className="font-bold text-gray-800">{formatEuro(shiftTotalCost(calculateHours(editStart + ':00', editEnd + ':00'), editingShift.flexi_workers?.hourly_rate || getDefaultRate(editingShift.flexi_workers?.status), editingShift.flexi_workers?.status || 'other', checkSundayOrHoliday(editingShift.date), editingShift.locations?.name, editingShift.flexi_workers?.home_lat, editingShift.flexi_workers?.home_lng))}</span>
               </div>
             </div>
             <div className="p-4 border-t space-y-2">
