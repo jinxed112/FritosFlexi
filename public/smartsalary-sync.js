@@ -1,60 +1,29 @@
 // public/smartsalary-sync.js
-// Chargé dynamiquement par le bookmarklet depuis my.partena-professional.be
-
+// Bookmarklet FritOS — Sync heures vers SmartSalary GroupCalendar
 (function () {
   if (document.getElementById('fritos-sync-panel')) {
     document.getElementById('fritos-sync-panel').remove();
     return;
   }
 
-  // Récupérer le token FritOS depuis l'URL du script
-  var FRITOS_TOKEN = '';
   var FRITOS_BASE = 'https://fritos-flexi.vercel.app';
-  var PARTENA_API = 'https://api.partena-professional.be/salary-api/api/v1/Employee';
   var GROUPCAL_API = 'https://api.partena-professional.be/salary-api/api/v1/PayrollUnits/308091/GroupCalendar';
+  var FRITOS_KEY = '';
 
   try {
     var scripts = document.querySelectorAll('script[src*="smartsalary-sync"]');
     var lastScript = scripts[scripts.length - 1];
-    var url = new URL(lastScript.src);
-    FRITOS_TOKEN = url.searchParams.get('k') || '';
+    FRITOS_KEY = new URL(lastScript.src).searchParams.get('k') || '';
   } catch (e) {}
 
   var _partenaToken = null;
+  var _orig = window.fetch;
 
-  var LOCATIONS = {
-    '1': { name: 'Jurbise', address: 'Rue de Mons 2, 7050 Jurbise', lat: 50.5261, lng: 3.9083 },
-    '2': { name: 'Boussu',  address: 'Grand Rue 90, 7300 Boussu',   lat: 50.4344, lng: 3.7958 }
-  };
-
-  async function calcDistance(workerStreet, workerZip, workerCity, locationId) {
-    try {
-      var loc = LOCATIONS[locationId];
-      if (!loc) return 0;
-      // Geocode worker address via Nominatim
-      var addr = encodeURIComponent(workerStreet + ', ' + workerZip + ' ' + workerCity + ', Belgium');
-      var geoResp = await _orig.call(window, 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + addr);
-      var geoData = await geoResp.json();
-      if (!geoData || !geoData[0]) return 10; // fallback
-      var wLat = parseFloat(geoData[0].lat);
-      var wLng = parseFloat(geoData[0].lon);
-      // Route distance via OSRM
-      var osrmUrl = 'https://router.project-osrm.org/route/v1/driving/' + wLng + ',' + wLat + ';' + loc.lng + ',' + loc.lat + '?overview=false';
-      var osrmResp = await _orig.call(window, osrmUrl);
-      var osrmData = await osrmResp.json();
-      if (osrmData && osrmData.routes && osrmData.routes[0]) {
-        return Math.round(osrmData.routes[0].distance / 1000); // km
-      }
-    } catch(e) { console.warn('[FritOS] Distance calc failed:', e); }
-    return 10; // fallback 10km
-  }
-
-  // Hook fetch pour intercepter le JWT SmartSalary
+  // ── Capture token Partena ──
   function isValidJWT(t) {
     if (!t || t.split('.').length !== 3) return false;
     try {
       var p = JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
-      // Must not be expired and must look like a Partena token
       var now = Math.floor(Date.now() / 1000);
       if (p.exp && p.exp < now) return false;
       var iss = (p.iss || '').toLowerCase();
@@ -66,83 +35,14 @@
   function captureToken(t) {
     if (t && isValidJWT(t) && t !== _partenaToken) {
       _partenaToken = t;
-      setStatus('✅ Token Partena capturé — sélectionnez les travailleurs', '#22c55e');
+      setStatus('✅ Token Partena capturé — cliquez Sync heures', '#22c55e');
       updateBtn();
       return true;
     }
     return false;
   }
 
-  function scanStorage() {
-    // Scan localStorage
-    try {
-      for (var i = 0; i < localStorage.length; i++) {
-        var key = localStorage.key(i);
-        var val = localStorage.getItem(key);
-        if (!val) continue;
-        // Direct JWT
-        if (val.startsWith('eyJ') && captureToken(val)) return true;
-        // JSON object containing a token field
-        try {
-          var obj = JSON.parse(val);
-          var fields = ['access_token','accessToken','token','id_token','bearer','Authorization'];
-          for (var f = 0; f < fields.length; f++) {
-            var v = obj[fields[f]];
-            if (v && typeof v === 'string' && v.startsWith('eyJ') && captureToken(v)) return true;
-          }
-          // Nested: obj.body, obj.data, obj.auth
-          var nested = ['body','data','auth','session','user'];
-          for (var n = 0; n < nested.length; n++) {
-            var sub = obj[nested[n]];
-            if (sub && typeof sub === 'object') {
-              for (var f2 = 0; f2 < fields.length; f2++) {
-                var v2 = sub[fields[f2]];
-                if (v2 && typeof v2 === 'string' && v2.startsWith('eyJ') && captureToken(v2)) return true;
-              }
-            }
-          }
-        } catch(e) {}
-      }
-    } catch(e) {}
-
-    // Scan sessionStorage
-    try {
-      for (var j = 0; j < sessionStorage.length; j++) {
-        var skey = sessionStorage.key(j);
-        var sval = sessionStorage.getItem(skey);
-        if (!sval) continue;
-        if (sval.startsWith('eyJ') && captureToken(sval)) return true;
-        try {
-          var sobj = JSON.parse(sval);
-          var sfields = ['access_token','accessToken','token','id_token','bearer'];
-          for (var sf = 0; sf < sfields.length; sf++) {
-            var sv = sobj[sfields[sf]];
-            if (sv && typeof sv === 'string' && sv.startsWith('eyJ') && captureToken(sv)) return true;
-          }
-        } catch(e) {}
-      }
-    } catch(e) {}
-
-    // Scan cookies
-    try {
-      var cookies = document.cookie.split(';');
-      for (var c = 0; c < cookies.length; c++) {
-        var cv = cookies[c].trim().split('=').slice(1).join('=');
-        if (cv && cv.startsWith('eyJ') && captureToken(cv)) return true;
-        try {
-          var decoded = decodeURIComponent(cv);
-          if (decoded.startsWith('eyJ') && captureToken(decoded)) return true;
-          var cobj = JSON.parse(decoded);
-          if (cobj && cobj.access_token && captureToken(cobj.access_token)) return true;
-        } catch(e) {}
-      }
-    } catch(e) {}
-
-    return false;
-  }
-
-  // Hook fetch (for future requests)
-  var _orig = window.fetch;
+  // Hook fetch
   window.fetch = function (url, opts) {
     try {
       var urlStr = (typeof url === 'string') ? url : (url && url.url) ? url.url : '';
@@ -155,7 +55,7 @@
     return _orig.apply(this, arguments);
   };
 
-  // Hook XHR setRequestHeader (wrap on top of Dynatrace agent)
+  // Hook XHR
   var _XHRSetHeader = XMLHttpRequest.prototype.setRequestHeader;
   XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
     try {
@@ -166,13 +66,22 @@
     return _XHRSetHeader.apply(this, arguments);
   };
 
-  // Scan immediately on load
+  // Scan storage au démarrage
   setTimeout(function() {
     if (!_partenaToken) {
-      var found = scanStorage();
-      if (!found) {
-        setStatus('⚠️ Token non trouvé dans le storage — cliquez 🔄 puis naviguez dans SmartSalary', '#f59e0b');
-      }
+      try {
+        for (var i = 0; i < localStorage.length; i++) {
+          var val = localStorage.getItem(localStorage.key(i));
+          if (val && val.startsWith('eyJ') && captureToken(val)) break;
+          try {
+            var obj = JSON.parse(val);
+            for (var f of ['access_token','accessToken','token']) {
+              if (obj[f] && captureToken(obj[f])) break;
+            }
+          } catch(e) {}
+        }
+      } catch(e) {}
+      if (!_partenaToken) setStatus('⚠️ Naviguez dans SmartSalary pour capturer le token', '#f59e0b');
     }
   }, 300);
 
@@ -180,79 +89,108 @@
   var panel = document.createElement('div');
   panel.id = 'fritos-sync-panel';
   panel.style.cssText = [
-    'position:fixed', 'top:16px', 'right:16px', 'width:400px', 'max-height:85vh',
-    'background:#1e293b', 'border:1px solid #334155', 'border-radius:14px',
-    'z-index:2147483647', 'display:flex', 'flex-direction:column',
+    'position:fixed','top:16px','right:16px','width:360px',
+    'background:#1e293b','border:1px solid #334155','border-radius:14px',
+    'z-index:2147483647','display:flex','flex-direction:column',
     'box-shadow:0 24px 64px rgba(0,0,0,.6)',
     'font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif',
-    'overflow:hidden', 'color:#e2e8f0', 'font-size:14px'
+    'overflow:hidden','color:#e2e8f0','font-size:14px'
   ].join(';');
 
   panel.innerHTML =
-    // Header
-    '<div style="padding:14px 16px;background:#0f172a;border-radius:14px 14px 0 0;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #334155;flex-shrink:0;">' +
+    '<div style="padding:14px 16px;background:#0f172a;border-radius:14px 14px 0 0;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #334155;">' +
       '<div style="display:flex;align-items:center;gap:10px;">' +
-        '<span style="font-size:22px;">📤</span>' +
+        '<span style="font-size:22px;">⏱</span>' +
         '<div><div style="font-weight:700;font-size:14px;color:#f1f5f9;">FritOS Sync</div>' +
-        '<div style="font-size:11px;color:#64748b;">Créer travailleurs dans SmartSalary</div></div>' +
+        '<div style="font-size:11px;color:#64748b;">Synchroniser les heures vers Partena</div></div>' +
       '</div>' +
       '<button id="fritos-close" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:22px;line-height:1;padding:0 2px;">×</button>' +
     '</div>' +
-    // Status bar
-    '<div style="padding:8px 16px;background:#0f172a;border-bottom:1px solid #1e293b;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
-      '<div id="fritos-status" style="font-size:12px;color:#f59e0b;flex:1;">⏳ Chargement des travailleurs FritOS...</div>' +
-      '<button id="fritos-trigger" title="Forcer la capture du token" style="background:#1e3a5f;border:1px solid #334155;color:#60a5fa;font-size:11px;padding:3px 8px;border-radius:6px;cursor:pointer;white-space:nowrap;flex-shrink:0;">🔄 Capturer token</button>' +
+    '<div style="padding:12px 16px;background:#0f172a;border-bottom:1px solid #1e293b;display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+      '<div id="fritos-status" style="font-size:12px;color:#f59e0b;flex:1;">⏳ En attente du token Partena...</div>' +
     '</div>' +
-    // Worker list
-    '<div id="fritos-list" style="overflow-y:auto;flex:1;padding:10px;min-height:60px;"></div>' +
-    // Footer
-    '<div style="padding:10px 12px;border-top:1px solid #334155;background:#0f172a;flex-shrink:0;">' +
-      '<div style="display:flex;gap:8px;">' +
-      '<button id="fritos-btn" disabled style="flex:1;padding:10px;background:#334155;color:#64748b;border:none;border-radius:8px;font-weight:600;font-size:13px;cursor:not-allowed;">👤 Créer workers</button>' +
-      '<button id="fritos-hours-btn" disabled style="flex:1;padding:10px;background:#334155;color:#64748b;border:none;border-radius:8px;font-weight:600;font-size:13px;cursor:not-allowed;">⏱ Sync heures</button>' +
+    '<div style="padding:16px;">' +
+      '<div style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px;margin-bottom:12px;">' +
+        '<div style="font-size:12px;color:#94a3b8;margin-bottom:8px;">Période à synchroniser</div>' +
+        '<div style="display:flex;gap:8px;">' +
+          '<select id="fritos-month" style="flex:1;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></select>' +
+          '<select id="fritos-year" style="width:90px;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></select>' +
+        '</div>' +
       '</div>' +
+      '<div id="fritos-preview" style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px;margin-bottom:12px;min-height:60px;">' +
+        '<div style="font-size:12px;color:#64748b;text-align:center;">Les prestations apparaîtront ici</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="padding:10px 12px;border-top:1px solid #334155;background:#0f172a;">' +
+      '<button id="fritos-hours-btn" disabled style="width:100%;padding:11px;background:#334155;color:#64748b;border:none;border-radius:8px;font-weight:600;font-size:13px;cursor:not-allowed;">⏱ Sync heures vers Partena</button>' +
     '</div>';
 
   document.body.appendChild(panel);
 
   document.getElementById('fritos-close').addEventListener('click', function () {
     panel.remove();
-    window.fetch = _orig; // restore fetch
+    window.fetch = _orig;
   });
 
-  // Trigger button: click the first worker in the Partena sidebar to force a fetch call
-  document.getElementById('fritos-trigger').addEventListener('click', function () {
-    setStatus('⏳ Tentative de capture...', '#f59e0b');
-    // Try clicking a worker link in the SmartSalary sidebar to trigger an API call
-    var links = document.querySelectorAll('a[href*="/worker"], a[href*="/employee"], li[class*="worker"], li[class*="employee"], .worker-list-item, [class*="workerList"] li, [class*="worker-list"] li');
-    var clicked = false;
-    for (var i = 0; i < links.length; i++) {
-      if (links[i] !== document.activeElement) {
-        links[i].click();
-        clicked = true;
-        break;
-      }
-    }
-    if (!clicked) {
-      // Fallback: try navigating to the next worker
-      var allLinks = document.querySelectorAll('a');
-      for (var j = 0; j < allLinks.length; j++) {
-        var href = allLinks[j].href || '';
-        if (href.includes('worker') || href.includes('employee') || href.includes('travailleur')) {
-          allLinks[j].click();
-          clicked = true;
-          break;
-        }
-      }
-    }
-    if (!clicked) {
-      setStatus('⚠️ Cliquez manuellement sur un travailleur dans la liste', '#f59e0b');
-    }
+  // Remplir les sélecteurs mois/année
+  var now = new Date();
+  var monthSel = document.getElementById('fritos-month');
+  var yearSel = document.getElementById('fritos-year');
+  var months = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  months.forEach(function(m, i) {
+    var opt = document.createElement('option');
+    opt.value = i + 1;
+    opt.textContent = m;
+    if (i === now.getMonth()) opt.selected = true;
+    monthSel.appendChild(opt);
   });
+  for (var y = now.getFullYear(); y >= now.getFullYear() - 1; y--) {
+    var opt = document.createElement('option');
+    opt.value = y;
+    opt.textContent = y;
+    if (y === now.getFullYear()) opt.selected = true;
+    yearSel.appendChild(opt);
+  }
 
-  var workers = [];
-  var selected = {};
-  var results = {};
+  // Charger preview quand mois/année change
+  async function loadPreview() {
+    var month = monthSel.value;
+    var year = yearSel.value;
+    var preview = document.getElementById('fritos-preview');
+    preview.innerHTML = '<div style="font-size:12px;color:#64748b;text-align:center;">⏳ Chargement...</div>';
+    try {
+      var resp = await _orig.call(window, FRITOS_BASE + '/api/smartsalary/prestations?year=' + year + '&month=' + month, {
+        headers: { 'x-fritos-auth': FRITOS_KEY }
+      });
+      var data = await resp.json();
+      var workers = data.TimesheetMonthForWorkers || [];
+      if (!workers.length) {
+        preview.innerHTML = '<div style="font-size:12px;color:#64748b;text-align:center;">Aucune prestation validée pour cette période</div>';
+        return;
+      }
+      var html = '';
+      workers.forEach(function(w) {
+        var totalDays = w.timesheetMonth.length;
+        var totalHours = w.timesheetMonth.reduce(function(acc, d) {
+          var h = d.performances[0] && d.performances[0].hours || '0.00:00:00';
+          var parts = h.split(':');
+          return acc + parseInt(parts[0].split('.')[1] || parts[0]) + parseInt(parts[1]) / 60;
+        }, 0);
+        html += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1e293b;">' +
+          '<span style="font-size:12px;color:#e2e8f0;">' + w.personId.split('#')[1] + ' · ' + (w.payrollGroupContext === '05' ? '🎓' : '⚡') + '</span>' +
+          '<span style="font-size:12px;color:#60a5fa;">' + totalDays + ' jour(s) · ' + totalHours.toFixed(1) + 'h</span>' +
+          '</div>';
+      });
+      preview.innerHTML = '<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">Prestations à synchroniser :</div>' + html;
+      updateBtn();
+    } catch(e) {
+      preview.innerHTML = '<div style="font-size:12px;color:#ef4444;">Erreur: ' + e.message + '</div>';
+    }
+  }
+
+  monthSel.addEventListener('change', loadPreview);
+  yearSel.addEventListener('change', loadPreview);
+  loadPreview();
 
   function setStatus(msg, color) {
     var el = document.getElementById('fritos-status');
@@ -260,342 +198,39 @@
   }
 
   function updateBtn() {
-    var btn = document.getElementById('fritos-btn');
+    var btn = document.getElementById('fritos-hours-btn');
     if (!btn) return;
-    var n = Object.keys(selected).length;
-    var ready = !!_partenaToken && n > 0;
+    var ready = !!_partenaToken;
     btn.disabled = !ready;
     btn.style.background = ready ? '#3b82f6' : '#334155';
     btn.style.color = ready ? '#fff' : '#64748b';
     btn.style.cursor = ready ? 'pointer' : 'not-allowed';
-    if (!_partenaToken) {
-      btn.textContent = 'En attente du token Partena...';
-    } else if (n === 0) {
-      btn.textContent = 'Sélectionnez des travailleurs';
-    } else {
-      btn.textContent = 'Synchroniser (' + n + ' travailleur' + (n > 1 ? 's' : '') + ')';
-    }
   }
 
-  function mapStudy(l) {
-    var m = {
-      'Enseignement primaire': '1',
-      'Enseignement secondaire inférieur': '2',
-      'Enseignement secondaire supérieur': '3',
-      'Enseignement supérieur non universitaire': '4',
-      'Enseignement universitaire': '5'
-    };
-    return m[l] || '3';
-  }
-
-  function haversineKm(lat1, lon1, lat2, lon2) {
-    var R = 6371;
-    var dLat = (lat2 - lat1) * Math.PI / 180;
-    var dLon = (lon2 - lon1) * Math.PI / 180;
-    var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-            Math.sin(dLon/2) * Math.sin(dLon/2);
-    return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
-  }
-
-  var LOCATIONS = {
-    '1': { name: 'Jurbise', lat: 50.526, lon: 3.908 },
-    '2': { name: 'Boussu', lat: 50.434, lon: 3.796 }
-  };
-
-  function buildPayload(w, dateIn, dateOut, estId, distanceKm) {
-    estId = estId || '1';
-    var dist = distanceKm || 10;
-    var raw = w.address_street || '';
-    var m = raw.match(/^(.*?)\s+(\d+\S*)$/);
-    var street = m ? m[1].trim() : raw;
-    var num = m ? m[2].trim() : '';
-    var niss = (w.niss || '').replace(/[.\-\s]/g, '');
-    var cityId = (w.address_zip && w.address_city) ? (w.address_zip + '#' + w.address_city) : null;
-    var isStudent = w.status === 'student';
-    var langMap = { 'NL': '2', 'DE': '3', 'EN': '4' };
-    return {
-      personId: null,
-      identity: {
-        lastName: w.last_name, firstName: w.first_name, personId: null, inss: niss,
-        nationalityId: '11',
-        languageId: langMap[w.language] || '1',
-        genderId: w.gender === 'F' ? '2' : '1',
-        birthDate: w.date_of_birth ? new Date(w.date_of_birth).toISOString() : null,
-        birthCountryId: '150', birthPlace: w.birth_place || '',
-        studyLevelId: mapStudy(w.education_level), isDimonaWorker: false,
-      },
-      contact: {
-        homeAddress: { street: street, number: num, city: w.address_city || '', cityId: (w.address_zip && w.address_city ? w.address_zip + '#' + w.address_city : null), zipCode: w.address_zip || '', countryId: '150', box: '', region: '' },
-        personId: null, workPhone: w.phone || '', workEmail: '', privatePhone: '', privateEmail: '',
-      },
-      fiscalSituation: { partnerLastName: '', partnerFirstName: '', numberOfChildrenAtCharge: 0, numberOfChildrenDisabled: 0, workerDisabled: false, personsAtCharge: [], civilStatusId: '1', partnerDisabled: false, civilStatusEntryYear: null },
-      bankAccount: { paymentChoice: '4', iban: (w.iban || '').replace(/\s/g, ''), bic: '', agency: '' },
-      messagePRC: '',
-      contract: {
-        payrollUnitId: '308091', payrollGroupId: isStudent ? '05' : '02',
-        dateInService: dateIn, categoryId: '03', subCategoryId: 'O', activityId: '2',
-        isActivePensioner: w.status === 'pensioner',
-        activityOfficialJointCommittee: '302.00', activityTechnicalJointCommittee: '302.00.00', activityWorkerClassification: 'Y',
-        isDimonaRelevant: true, governanceLevel: null, regionId: null,
-        contractPeriods: [{ dateInService: dateIn, dateOutService: dateOut, hoursWorked: null, c32CurrentMonth: '', c32NextMonth: '', dimonaRequested: false, dimonaInvoiceRequested: null, reasonOutServiceId: '04', noticeStartingDate: null, noticeNotificationDate: null }],
-        department: { departmentCode: '0000000' }, imposedStartDate: null, endTrialDate: null,
-        establishmentUnit: { validityDate: null, validityEndDate: null, address: null }, officialJointCommittee: {}, chosenJointCommittee: {}, establishmentUnitId: estId,
-
-        wagePackage: {
-          salaryInformation: { salaryTypeId: '2', amount: parseFloat(w.hourly_rate) || 12.78, cafeteriaPlanAmount: 0, professionalCategory: '2', effectiveDate: dateIn, officialJointCommittee: '', baremaAutomatic: '', seniorityEntryDate: dateIn, additionalSeniorityMonths: 0, additionalSeniorityYears: 0, governanceLevel: null, flexiJobAmount: 0, baremicSeniorityMonths: 0, baremicSeniorityYears: 0 },
-          payWageComponents: [], companyVehicles: [],
-          transportCosts: [{ icon: 'car', label: 'other', category: '1', wageComponentIsMissing: false, type: '0', isChecked: true, details: '', distance: distanceKm || 10, state: 0, price: 0 }],
-          contractWageComponents: [{
-            reimbursementFrequency: '0',
-            wageComponentId: null,
-            amount: 0, minimumAmount: null, number: 0,
-            constantCode: 'Recurrent', percentage: 0, occurrenceNumber: null,
-            userHasChoice: false, valueA: 'A=0',
-            beginDate: null, endDate: null,
-            isOnlyThisMonth: false, isNotThisMonth: false,
-            payCode: {
-              code: '850.40', type: 'Unidentified',
-              shortDescription: 'Véhicule privée',
-              longDescription: 'Indemnité de transport ( x jours prestés)',
-              info: '', isCodeBusinessLeader: false, isCodeEmployee: true,
-              family: { code: '51', description: 'Mobilité', originalCode: '51 subA5' },
-              subFamily: { code: 'subA5', description: 'Transport domicile - lieu de travail', originalCode: '51 subA5' },
-              imposedAmount: null, expenseJustification: 'ForfaitAmount',
-              mnemoCode: '', mnemoColor: 'Black', mnemoBackColor: 'White',
-              isOvertime: false, percentage: null, isPerformanceCode: false,
-              isStandardCode: true, isStandardDisplayCode: false,
-              isDisplayInSmartSalary: true, isDisplayInProSalary: true,
-              associatedAmountType: 'Remunerated',
-              socialSecurityType: 'Pas de ONSS', taxableType: 'Pas taxable',
-              inputType: '92', lastUsedDate: null, isFavorite: false,
-              masterCode: null, codeExtension: null, absenceType: null,
-              timeCreditType: null, performanceType: null,
-              illnessWorkAccidentFamily: null, illnessWorkAccidentPayCodeType: null,
-              illnessWorkAccidentBaseCode: null, newPeriodCode: null,
-              confirmedNewPeriodCode: null, relapseCode: null,
-              isCodeAbsfut: false, customPayCodeConfigurations: [],
-              validityPeriods: [{ dateFrom: null, dateTo: null }],
-              outputGeneratedCode: '711.00',
-              clientSpecificShortDescription: 'Indemnité de transport ( x jours prestés)',
-              clientSpecificLongDescription: '', isExpertOnly: false, isClientSpecific: false
-            }
-          }],
-          transportCostIsAutomaticCalculation: 'NoAutomaticCalculation',
-        },
-        schedule: { detailsSchedule: [], scheduleDetailsLoaded: false, realWorkHours: 'PT0S', theoreticalWorkHours: 'PT0S', startDate: null, id: '0000003', name: 'Flexi 4h 2j', fullTime: false },
-        dateOutService: dateOut, contractualSeniorityStartDate: null, classRiskId: '001',
-        noticeNotificationDate: null, noticeStartingDate: null, scheduleStartDate: null, effectiveDate: null,
-        jobTitleHorecaId: null, apprenticeContractNumber: null, contractTypeId: 'B',
-        scientificResearcherType: null, journalistNumber: null, journalistStartDate: null, journalistEndDate: null,
-        jobTitle: 'Polyvalent', scheduleId: '0000003', fullTime: false, isOccasional: false, workerType: 'OU',
-        requestGuaranteeIncome: null, requestMaintenanceOfRights: null, subsidizedMaribel: null,
-        subsidizedMaribelHours: null, subsidizedMaribelStart: null, contractNumber: '', isManagement: false,
-      }
-    };
-  }
-
-  function renderList() {
-    var el = document.getElementById('fritos-list');
-    if (!el) return;
-    if (!workers.length) {
-      el.innerHTML = '<p style="color:#64748b;font-size:12px;padding:16px;text-align:center;">Aucun travailleur avec profil complet.</p>';
-      updateBtn(); return;
-    }
-    var today = new Date().toISOString().split('T')[0];
-    var endYear = new Date().getFullYear() + '-12-31';
-    var html = '';
-    workers.forEach(function (w) {
-      var sel = selected[w.id];
-      var res = results[w.id];
-      var border = res ? (res.success ? '#22c55e' : '#ef4444') : (sel ? '#3b82f6' : '#1e3a5f');
-      var dateIn = sel ? sel.dateIn : today;
-      var dateOut = sel ? sel.dateOut : endYear;
-      var initials = (w.first_name[0] || '') + (w.last_name[0] || '');
-      var badge = w.status === 'student' ? '🎓 Étudiant' : '⚡ Flexi';
-      html += '<div style="border:1px solid ' + border + ';border-radius:10px;padding:10px 12px;margin-bottom:8px;background:#0f172a;">';
-      html += '<div style="display:flex;align-items:center;gap:10px;">';
-      if (!(res && res.success)) {
-        html += '<input type="checkbox" ' + (sel ? 'checked' : '') + ' data-id="' + w.id + '" data-datein="' + dateIn + '" data-dateout="' + dateOut + '" class="fritos-check" style="width:16px;height:16px;accent-color:#3b82f6;cursor:pointer;flex-shrink:0;">';
-      }
-      html += '<div style="width:30px;height:30px;border-radius:50%;background:#1e3a5f;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#60a5fa;flex-shrink:0;">' + initials + '</div>';
-      html += '<div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:13px;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + w.first_name + ' ' + w.last_name + '</div>';
-      html += '<div style="font-size:11px;color:#64748b;">' + badge + ' · ' + w.hourly_rate + '€/h</div></div>';
-      if (res) {
-        html += '<span style="font-size:20px;">' + (res.success ? '✅' : '❌') + '</span>';
-      }
-      html += '</div>';
-      if (sel && !res) {
-        var estId = sel ? (sel.estId || '1') : '1';
-        html += '<div style="display:flex;gap:8px;margin-top:8px;padding-left:56px;flex-wrap:wrap;">';
-        html += '<div><div style="font-size:10px;color:#64748b;margin-bottom:2px;">Date début</div><input type="date" value="' + dateIn + '" data-id="' + w.id + '" data-field="dateIn" class="fritos-date" style="font-size:11px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;border-radius:6px;padding:3px 6px;"></div>';
-        html += '<div><div style="font-size:10px;color:#64748b;margin-bottom:2px;">Date fin</div><input type="date" value="' + dateOut + '" data-id="' + w.id + '" data-field="dateOut" class="fritos-date" style="font-size:11px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;border-radius:6px;padding:3px 6px;"></div>';
-        html += '<div><div style="font-size:10px;color:#64748b;margin-bottom:2px;">Friterie</div><select data-id="' + w.id + '" data-field="location" class="fritos-date" style="font-size:11px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;border-radius:6px;padding:4px 6px;"><option value="1"' + (estId==='1'?' selected':'') + '>📍 Jurbise</option><option value="2"' + (estId==='2'?' selected':'') + '>📍 Boussu</option></select></div>';
-        html += '<div><div style="font-size:10px;color:#64748b;margin-bottom:2px;">Site</div><select data-id="' + w.id + '" data-field="estId" class="fritos-date" style="font-size:11px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;border-radius:6px;padding:3px 6px;"><option value="1"' + (estId==='1'?' selected':'') + '>🏠 Jurbise</option><option value="2"' + (estId==='2'?' selected':'') + '>🏠 Boussu</option></select></div>';
-        html += '</div>';
-      }
-      if (res && res.error) {
-        html += '<div style="margin-top:6px;font-size:10px;color:#ef4444;font-family:monospace;word-break:break-all;white-space:pre-wrap;background:#1e293b;padding:6px 8px;border-radius:4px;max-height:120px;overflow-y:auto;">' + String(res.error).substring(0, 500) + '</div>';
-      }
-      html += '</div>';
-    });
-    el.innerHTML = html;
-
-    // Bind checkbox events
-    el.querySelectorAll('.fritos-check').forEach(function (cb) {
-      cb.addEventListener('change', function () {
-        var id = this.dataset.id;
-        if (selected[id]) { delete selected[id]; } else { selected[id] = { dateIn: this.dataset.datein, dateOut: this.dataset.dateout, estId: '1' }; }
-        renderList();
-      });
-    });
-
-    // Bind date/select events
-    el.querySelectorAll('.fritos-date').forEach(function (input) {
-      input.addEventListener('change', function () {
-        var id = this.dataset.id;
-        var field = this.dataset.field;
-        if (!selected[id]) return;
-        if (field === 'location') { selected[id].estId = this.value; }
-        else { selected[id][field] = this.value; }
-      });
-    });
-
-    updateBtn();
-  }
-
-  // Sync button
-  document.getElementById('fritos-btn').addEventListener('click', async function () {
-    if (!_partenaToken || !Object.keys(selected).length) return;
-    var btn = this;
-    btn.disabled = true;
-    btn.style.background = '#1e3a5f';
-    btn.textContent = '⏳ Synchronisation en cours...';
-
-    for (var i = 0; i < workers.length; i++) {
-      var w = workers[i];
-      var sel = selected[w.id];
-      if (!sel || (results[w.id] && results[w.id].success)) continue;
-
-      setStatus('⏳ Création de ' + w.first_name + ' ' + w.last_name + '...', '#94a3b8');
-      try {
-        var estId = sel.estId || '1';
-        setStatus('📍 Calcul distance pour ' + w.first_name + ' ' + w.last_name + '...', '#94a3b8');
-        var distKm = await calcDistance(w.address_street, w.address_zip, w.address_city, estId);
-        console.log('[FritOS] Distance:', distKm, 'km vers friterie', estId);
-        // Convert date strings to local Belgium midnight (CET = UTC+1 in winter)
-        function toLocalMidnight(dateStr) {
-          var d = new Date(dateStr + 'T00:00:00');
-          // Subtract 1h to get UTC representation of local midnight (CET)
-          return new Date(d.getTime() - 60 * 60 * 1000).toISOString();
-        }
-        var payload = buildPayload(w, toLocalMidnight(sel.dateIn), toLocalMidnight(sel.dateOut), estId, distKm);
-        console.log('[FritOS] Payload envoyé pour', w.first_name, w.last_name, JSON.stringify(payload, null, 2));
-        var res = await _orig.call(window, PARTENA_API, {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + _partenaToken,
-            'Content-Type': 'application/json',
-            'Accept-Language': 'fr',
-            'application': 'SmartSalary',
-            'payrollunitid': '308091',
-            'demomode': 'false',
-            'origin': 'https://smartsalary.partena-professional.be',
-            'referer': 'https://smartsalary.partena-professional.be/',
-          },
-          body: JSON.stringify(payload)
-        });
-        var text = await res.text();
-        var data;
-        try { data = JSON.parse(text); } catch (e) { data = text; }
-
-        if (res.ok && data && data.result) {
-          var personId = data.result.personId || data.result.id || null;
-          results[w.id] = { success: true, personId: personId };
-          delete selected[w.id];
-          console.log('[FritOS] Créé:', w.first_name, w.last_name, '→ personId:', personId);
-
-          // Save personId back to FritOS
-          if (personId) {
-            try {
-              await _orig.call(window, FRITOS_BASE + '/api/smartsalary/confirm', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ workerId: w.id, personId: personId, fritosToken: FRITOS_TOKEN })
-              });
-            } catch (e) { console.warn('FritOS confirm failed:', e); }
-          }
-        } else {
-          var errMsg = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-          console.error('[FritOS] Erreur', w.first_name, w.last_name, '| HTTP', res.status, '|', errMsg);
-          results[w.id] = { success: false, error: 'HTTP ' + res.status + ' — ' + errMsg };
-        }
-      } catch (e) {
-        console.error('[FritOS] Exception', w.first_name, w.last_name, e);
-        results[w.id] = { success: false, error: e.message };
-      }
-      renderList();
-    }
-
-    var nOk = Object.values(results).filter(function (r) { return r.success; }).length;
-    var nFail = Object.values(results).filter(function (r) { return !r.success; }).length;
-    setStatus(
-      '✅ ' + nOk + ' créé(s)' + (nFail ? ' · ❌ ' + nFail + ' erreur(s)' : ''),
-      nFail ? '#f59e0b' : '#22c55e'
-    );
-    btn.disabled = false;
-    btn.style.background = '#22c55e';
-    btn.style.color = '#fff';
-    btn.textContent = '👤 Créer workers';
-    var hbtn = document.getElementById('fritos-hours-btn');
-    if (hbtn) { hbtn.disabled = false; hbtn.style.background = '#3b82f6'; hbtn.style.color = '#fff'; hbtn.style.cursor = 'pointer'; }
-  });
-
-  // Load workers from FritOS
-  (async function () {
-    try {
-      var res = await _orig.call(window, FRITOS_BASE + '/api/smartsalary/pending', {
-        headers: { 'x-fritos-auth': FRITOS_TOKEN }
-      });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      var data = await res.json();
-      workers = data.workers || [];
-      var msg = workers.length + ' travailleur' + (workers.length > 1 ? 's' : '') + ' chargé' + (workers.length > 1 ? 's' : '');
-      msg += _partenaToken ? ' · ✅ Token capturé' : ' · Effectuez une action dans SmartSalary pour capturer le token...';
-      setStatus(msg, _partenaToken ? '#22c55e' : '#f59e0b');
-      renderList();
-    } catch (e) {
-      setStatus('❌ Erreur chargement FritOS: ' + e.message, '#ef4444');
-    }
-    // ── Sync heures vers GroupCalendar ──────────────────────────────────
+  // ── Sync heures ──
   document.getElementById('fritos-hours-btn').addEventListener('click', async function () {
     if (!_partenaToken) return;
     var btn = this;
     btn.disabled = true;
-    btn.textContent = '⏳ Chargement prestations...';
+    btn.textContent = '⏳ Synchronisation en cours...';
+    var month = monthSel.value;
+    var year = yearSel.value;
 
     try {
-      // Récupère les prestations validées depuis FritOS
-      var now = new Date();
-      var year = now.getFullYear();
-      var month = now.getMonth() + 1;
       var resp = await _orig.call(window, FRITOS_BASE + '/api/smartsalary/prestations?year=' + year + '&month=' + month, {
-        headers: { 'x-fritos-auth': FRITOS_TOKEN }
+        headers: { 'x-fritos-auth': FRITOS_KEY }
       });
       var data = await resp.json();
+      var workers = data.TimesheetMonthForWorkers || [];
 
-      if (!data.TimesheetMonthForWorkers || !data.TimesheetMonthForWorkers.length) {
-        setStatus('⚠️ Aucune prestation validée trouvée pour ' + month + '/' + year, '#f59e0b');
+      if (!workers.length) {
+        setStatus('⚠️ Aucune prestation validée à synchroniser', '#f59e0b');
         btn.disabled = false;
-        btn.textContent = '⏱ Sync heures';
+        btn.textContent = '⏱ Sync heures vers Partena';
         return;
       }
 
-      var workers = data.TimesheetMonthForWorkers;
-      setStatus('📤 Envoi de ' + workers.length + ' worker(s) vers GroupCalendar...', '#94a3b8');
-      console.log('[FritOS] GroupCalendar payload:', JSON.stringify({ TimesheetMonthForWorkers: workers }, null, 2));
-
-      // Envoie par groupe (05 étudiants, 04 flexi) séparément
+      // Grouper par payrollGroupContext
       var groups = {};
       workers.forEach(function(w) {
         var g = w.payrollGroupContext;
@@ -605,7 +240,10 @@
 
       var allOk = true;
       for (var g in groups) {
+        setStatus('📤 Envoi groupe ' + g + ' (' + groups[g].length + ' worker(s))...', '#94a3b8');
         var payload = { TimesheetMonthForWorkers: groups[g] };
+        console.log('[FritOS] PUT GroupCalendar groupe ' + g, JSON.stringify(payload, null, 2));
+
         var r = await _orig.call(window, GROUPCAL_API, {
           method: 'PUT',
           headers: {
@@ -633,19 +271,20 @@
 
       if (allOk) {
         var total = workers.reduce(function(acc, w) { return acc + w.timesheetMonth.length; }, 0);
-        setStatus('✅ ' + total + ' jour(s) synchronisé(s) vers Partena !', '#22c55e');
+        setStatus('✅ ' + total + ' jour(s) synchronisé(s) avec succès !', '#22c55e');
         btn.textContent = '✅ Heures synchronisées';
+        btn.style.background = '#22c55e';
       } else {
         btn.disabled = false;
-        btn.textContent = '⏱ Sync heures';
+        btn.textContent = '⏱ Sync heures vers Partena';
+        btn.style.background = '#3b82f6';
       }
-
     } catch (e) {
-      setStatus('❌ Erreur sync heures: ' + e.message, '#ef4444');
+      setStatus('❌ Erreur: ' + e.message, '#ef4444');
       btn.disabled = false;
-      btn.textContent = '⏱ Sync heures';
+      btn.textContent = '⏱ Sync heures vers Partena';
+      btn.style.background = '#3b82f6';
     }
   });
 
-})();
 })();
