@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import MissionsList from '@/components/flexi/MissionsList';
+import { getDefaultRate } from '@/types';
 
 export default async function FlexiMissionsPage() {
   const supabase = createClient();
@@ -8,14 +9,13 @@ export default async function FlexiMissionsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/flexi/login');
 
-  // Manager → redirect to dashboard
   if (user.user_metadata?.role === 'manager') {
     redirect('/dashboard/flexis');
   }
 
   const { data: worker } = await supabase
     .from('flexi_workers')
-    .select('id, hourly_rate')
+    .select('id, hourly_rate, status, home_lat, home_lng')
     .eq('user_id', user.id)
     .single();
 
@@ -28,7 +28,6 @@ export default async function FlexiMissionsPage() {
     );
   }
 
-  // Proposed shifts
   const { data: proposed } = await supabase
     .from('shifts')
     .select('*, locations(name, address)')
@@ -36,7 +35,6 @@ export default async function FlexiMissionsPage() {
     .eq('status', 'proposed')
     .order('date');
 
-  // Recent history
   const { data: history } = await supabase
     .from('shifts')
     .select('*, locations(name)')
@@ -45,11 +43,16 @@ export default async function FlexiMissionsPage() {
     .order('date', { ascending: false })
     .limit(10);
 
+  const w = worker as any;
+
   return (
     <MissionsList
       proposed={proposed || []}
       history={history || []}
-      hourlyRate={(worker as any)?.hourly_rate || 12.53}
+      hourlyRate={w.hourly_rate || getDefaultRate(w.status)}
+      workerStatus={w.status || 'other'}
+      homeLat={w.home_lat || null}
+      homeLng={w.home_lng || null}
     />
   );
 }

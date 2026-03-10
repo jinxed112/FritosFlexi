@@ -257,13 +257,20 @@ export interface CostCalculation {
 // ─── Constants ──────────────────────────────────────────────
 
 export const FLEXI_CONSTANTS = {
-  MIN_HOURLY_RATE: 12.53,
-  MIN_HOURLY_RATE_MARCH_2026: 12.78,
+  // Taux flexi-job CP 302 horeca — forfaitaire, pécule vacances 7,67% inclus, brut = net
+  // En vigueur depuis le 01/03/2026
+  MIN_HOURLY_RATE: 12.78,
+  // Taux étudiant CP 302 — barème catégorie I/II, 0 années de fonction
+  // En vigueur depuis le 01/01/2026 (indexation +2,189%) — brut avant solidarité 2,71%
+  MIN_HOURLY_RATE_STUDENT: 15.21,
+  // Ancien taux (avant mars 2026) — conservé pour référence historique
+  MIN_HOURLY_RATE_LEGACY: 12.53,
   MAX_RATE_MULTIPLIER: 1.5,
   EMPLOYER_CONTRIBUTION_RATE: 0.28,
   SUNDAY_PREMIUM_PER_HOUR: 2,
   SUNDAY_PREMIUM_MAX_PER_DAY: 12,
   VACATION_PAY_RATE: 0.0767,
+  SOLIDARITY_CONTRIBUTION_STUDENT: 0.0271,
   YTD_WARNING_THRESHOLD: 15000,
   YTD_CRITICAL_THRESHOLD: 17000,
   YTD_BLOCKED_THRESHOLD: 18000,
@@ -271,3 +278,10 @@ export const FLEXI_CONSTANTS = {
   JOINT_COMMITTEE: '302',
   WORKER_TYPE: 'FLX',
 } as const;
+
+/** Retourne le taux horaire minimum légal selon le statut du worker */
+export function getDefaultRate(status: WorkerStatus): number {
+  return status === 'student'
+    ? FLEXI_CONSTANTS.MIN_HOURLY_RATE_STUDENT
+    : FLEXI_CONSTANTS.MIN_HOURLY_RATE;
+}

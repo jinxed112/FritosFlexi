@@ -3,6 +3,7 @@
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import type { CreateWorkerInput, UpdateProfileInput } from '@/types';
+import { getDefaultRate } from '@/types';
 
 /**
  * Create a new flexi worker (manager action)
@@ -33,6 +34,8 @@ export async function createWorker(input: CreateWorkerInput) {
     return { error: `Erreur création compte : ${authError.message}` };
   }
 
+  const status = input.status ?? 'other';
+
   // Create worker record
   const { data: workerData, error: workerError } = await supabase
     .from('flexi_workers')
@@ -41,8 +44,8 @@ export async function createWorker(input: CreateWorkerInput) {
       first_name: input.first_name,
       last_name: input.last_name,
       email: input.email,
-      hourly_rate: input.hourly_rate ?? 12.53,
-      status: input.status ?? 'student',
+      hourly_rate: input.hourly_rate ?? getDefaultRate(status),
+      status,
     })
     .select()
     .single();

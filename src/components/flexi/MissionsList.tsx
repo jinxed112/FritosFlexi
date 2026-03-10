@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { acceptShift, refuseShift } from '@/lib/actions/shifts';
 import { calculateHours } from '@/utils';
 import { haversineKm, KM_RATE_CP302, LOCATION_COORDS } from '@/lib/transport';
+import { FLEXI_CONSTANTS, getDefaultRate } from '@/types';
 import { Clock, MapPin, Car } from 'lucide-react';
 
 interface MissionsListProps {
@@ -24,13 +25,11 @@ const statusLabels: Record<string, { label: string; class: string }> = {
   cancelled: { label: 'Annulé',    class: 'bg-gray-50 text-gray-400' },
 };
 
-// Taux minimum légal CP 302 (en vigueur au 01/03/2026, pécule vacances 7,67% inclus)
-const FLEXI_MIN_RATE = 12.78;
-
 function calcNet(hours: number, rate: number, status: string) {
   const gross = Math.round(hours * rate * 100) / 100;
-  // Étudiants : cotisation de solidarité 2,71%
-  const solidarity = status === 'student' ? Math.round(gross * 0.0271 * 100) / 100 : 0;
+  const solidarity = status === 'student'
+    ? Math.round(gross * FLEXI_CONSTANTS.SOLIDARITY_CONTRIBUTION_STUDENT * 100) / 100
+    : 0;
   const net = Math.round((gross - solidarity) * 100) / 100;
   return { gross, solidarity, net };
 }
@@ -48,20 +47,18 @@ function fmt(n: number) {
   return n.toLocaleString('fr-BE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// ─── Détail gains (missions proposées) ──────────────────────────────────────
 function EarningsBreakdown({ shift, hourlyRate, workerStatus, homeLat, homeLng }: {
   shift: any; hourlyRate: number; workerStatus: string;
   homeLat: number | null; homeLng: number | null;
 }) {
   const hours = calculateHours(shift.start_time, shift.end_time);
-  const rate  = hourlyRate || FLEXI_MIN_RATE;
+  const rate  = hourlyRate || getDefaultRate(workerStatus as any);
   const { gross, solidarity, net } = calcNet(hours, rate, workerStatus);
   const transport = calcTransport(shift.locations?.name, homeLat, homeLng);
   const total = Math.round((net + (transport?.allowance ?? 0)) * 100) / 100;
 
   return (
     <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
-      {/* Salaire brut */}
       <div className="flex justify-between text-sm text-gray-500">
         <span className="flex items-center gap-1.5">
           <Clock size={12} />{hours}h × {fmt(rate)} €/h
@@ -69,7 +66,6 @@ function EarningsBreakdown({ shift, hourlyRate, workerStatus, homeLat, homeLng }
         <span>{fmt(gross)} €</span>
       </div>
 
-      {/* Cotisation solidarité (étudiants uniquement) */}
       {solidarity > 0 && (
         <div className="flex justify-between text-xs text-orange-500">
           <span>Cotisation solidarité (2,71 %)</span>
@@ -77,7 +73,6 @@ function EarningsBreakdown({ shift, hourlyRate, workerStatus, homeLat, homeLng }
         </div>
       )}
 
-      {/* Frais de déplacement */}
       {transport ? (
         <div className="flex justify-between text-xs text-blue-500">
           <span className="flex items-center gap-1.5">
@@ -91,7 +86,6 @@ function EarningsBreakdown({ shift, hourlyRate, workerStatus, homeLat, homeLng }
         </div>
       )}
 
-      {/* Total estimé */}
       <div className="flex justify-between text-sm font-bold text-emerald-600 pt-1.5 border-t border-gray-100">
         <span>Total estimé</span>
         <span>≈ {fmt(total)} €</span>
@@ -100,21 +94,19 @@ function EarningsBreakdown({ shift, hourlyRate, workerStatus, homeLat, homeLng }
   );
 }
 
-// ─── Montant compact (historique) ───────────────────────────────────────────
 function HistoryEarnings({ shift, hourlyRate, workerStatus, homeLat, homeLng }: {
   shift: any; hourlyRate: number; workerStatus: string;
   homeLat: number | null; homeLng: number | null;
 }) {
   if (!['accepted', 'completed'].includes(shift.status)) return null;
   const hours = calculateHours(shift.start_time, shift.end_time);
-  const rate  = hourlyRate || FLEXI_MIN_RATE;
+  const rate  = hourlyRate || getDefaultRate(workerStatus as any);
   const { net } = calcNet(hours, rate, workerStatus);
   const transport = calcTransport(shift.locations?.name, homeLat, homeLng);
   const total = Math.round((net + (transport?.allowance ?? 0)) * 100) / 100;
   return <span className="text-emerald-600 font-semibold"> · ≈ {fmt(total)} €</span>;
 }
 
-// ─── Composant principal ─────────────────────────────────────────────────────
 export default function MissionsList({
   proposed, history, hourlyRate, workerStatus, homeLat, homeLng,
 }: MissionsListProps) {
@@ -154,7 +146,6 @@ export default function MissionsList({
         </div>
       )}
 
-      {/* ─── Missions proposées ─────────────────────────────────────────── */}
       {proposed.length > 0 && (
         <>
           <h2 className="text-sm font-bold text-gray-800 mb-3">Nouvelles missions</h2>
@@ -216,7 +207,6 @@ export default function MissionsList({
         </div>
       )}
 
-      {/* ─── Historique ─────────────────────────────────────────────────── */}
       <h2 className="text-sm font-bold text-gray-800 mb-3">Historique récent</h2>
       <div className="space-y-2">
         {history.map((shift) => {
