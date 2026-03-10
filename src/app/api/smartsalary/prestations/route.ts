@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
         personId,
         workerId,
         payrollGroupContext,
-        taskNumber: String(month).padStart(2, '0'),
+        taskNumber: "01",
         includeEssData: false,
         illnessWorkAccidentPeriods: [],
         timesheetMonth: [],
