@@ -20,13 +20,12 @@ export async function GET(req: NextRequest) {
   const { createClient } = await import('@supabase/supabase-js');
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { global: { headers: { Authorization: `Bearer ${authHeader}` } } }
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
-
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
+  const { data: { user }, error: authError } = await supabase.auth.getUser(authHeader);
+  if (!user || authError) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401, headers: CORS_HEADERS });
+  }, { status: 401, headers: CORS_HEADERS });
   }
 
   const { data: workers } = await supabase

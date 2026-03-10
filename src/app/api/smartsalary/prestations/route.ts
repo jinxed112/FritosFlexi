@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { global: { headers: { Authorization: `Bearer ${authHeader}` } } }
   );
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser(authHeader);
   if (!user) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401, headers: CORS_HEADERS });
   }
