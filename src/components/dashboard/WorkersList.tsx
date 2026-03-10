@@ -7,6 +7,7 @@ import { createMultiShifts } from '@/lib/actions/shifts';
 import { calculateHours, calculateCost, formatEuro } from '@/utils';
 import { FLEXI_CONSTANTS } from '@/types';
 import ManagerContractsPanel from '@/components/dashboard/ManagerContractsPanel';
+import { haversineKm, KM_RATE_CP302, LOCATION_COORDS } from '@/lib/transport';
 import {
   Plus, X, UserPlus, Calendar, Clock, ChevronLeft, ChevronRight,
   Search, MoreHorizontal, KeyRound, Power, Trash2, User, Mail, Phone,
@@ -470,6 +471,39 @@ export default function WorkersList({ workers, locations }: Props) {
                   <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
                     <span className="text-sm font-medium text-gray-700">Taux horaire</span>
                     <span className="text-lg font-bold text-gray-900">{selectedWorker.hourly_rate} €/h</span>
+                  </div>
+
+                  {/* Frais de déplacement */}
+                  <div className="p-4 bg-blue-50 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-gray-700">Frais de déplacement</span>
+                      <span className="text-[10px] text-gray-400 font-medium">{KM_RATE_CP302} €/km · aller</span>
+                    </div>
+                    {selectedWorker.home_lat && selectedWorker.home_lng ? (
+                      <div className="space-y-2">
+                        {Object.entries(LOCATION_COORDS).map(([name, coords]) => {
+                          const km = Math.round(haversineKm(selectedWorker.home_lat, selectedWorker.home_lng, coords.lat, coords.lng) * 10) / 10;
+                          const allowance = Math.round(km * KM_RATE_CP302 * 100) / 100;
+                          return (
+                            <div key={name} className="flex items-center justify-between bg-white rounded-lg px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <MapPin size={12} className="text-blue-400" />
+                                <span className="text-sm text-gray-700">{name}</span>
+                                <span className="text-xs text-gray-400">{km} km</span>
+                              </div>
+                              <span className="text-sm font-semibold text-blue-700">
+                                +{allowance.toLocaleString('fr-BE', { minimumFractionDigits: 2 })} €
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-gray-400 italic flex items-center gap-1.5">
+                        <MapPin size={11} />
+                        Adresse non géocodée — le worker doit sauvegarder son profil
+                      </div>
+                    )}
                   </div>
 
                   {/* Profile completeness */}
