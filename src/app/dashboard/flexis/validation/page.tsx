@@ -25,14 +25,9 @@ export default async function DashboardValidationPage() {
     .order('validated_at', { ascending: false });
 
   return (
-    <>
-      <div style={{ background: 'red', color: 'white', padding: '20px', fontSize: '24px' }}>
-        TEST — pending: {pending?.length ?? 0} / validated: {validated?.length ?? 0}
-      </div>
-      <ValidationTable
-        entries={pending || []}
-        validatedEntries={validated || []}
-      />
-    </>
+    <ValidationTable
+      entries={pending || []}
+      validatedEntries={validated || []}
+    />
   );
 }
