@@ -6,7 +6,7 @@ export default async function DashboardValidationPage() {
 
   const selectQuery = `
     *,
-    flexi_workers(first_name, last_name, hourly_rate),
+    flexi_workers(first_name, last_name, hourly_rate, status),
     shifts(date, start_time, end_time, location_id, locations(name))
   `;
 
