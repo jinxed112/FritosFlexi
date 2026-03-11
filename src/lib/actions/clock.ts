@@ -246,15 +246,16 @@ export async function updatePinCode(pin: string) {
 }
 
 /**
- * Validate a time entry (manager action)
+ * Validate a time entry (manager action) — uses admin client to bypass RLS
  */
 export async function validateTimeEntry(entryId: string) {
   const supabase = createClient();
+  const admin = createAdminClient();
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Non connecté' };
 
-  const { error } = await supabase
+  const { error } = await admin
     .from('time_entries')
     .update({
       validated: true,
@@ -271,16 +272,16 @@ export async function validateTimeEntry(entryId: string) {
 }
 
 /**
- * Correct hours on a time entry (manager action)
+ * Correct hours on a time entry (manager action) — uses admin client to bypass RLS
  */
 export async function correctTimeEntry(
   entryId: string,
   clockIn: string,
   clockOut: string
 ) {
-  const supabase = createClient();
+  const admin = createAdminClient();
 
-  const { error } = await supabase
+  const { error } = await admin
     .from('time_entries')
     .update({ clock_in: clockIn, clock_out: clockOut })
     .eq('id', entryId);
