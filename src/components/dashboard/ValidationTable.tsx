@@ -307,10 +307,9 @@ function getBillableInfo(entry: any) {
   const shiftStart = new Date(`${shiftDate}T${String(sh).padStart(2, '0')}:${String(sm).padStart(2, '0')}:00`);
   const shiftEnd = new Date(`${shiftDate}T${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}:00`);
 
-  const billableStart = clockIn < shiftStart ? shiftStart : clockIn;
-  const billableEnd = clockOut > shiftEnd ? shiftEnd : clockOut;
-  const billableHours = Math.max(0, (billableEnd.getTime() - billableStart.getTime()) / 3600000);
+  // Heures reelles = heures facturables (le manager ajuste via Ajuster les heures)
   const actualHours = (clockOut.getTime() - clockIn.getTime()) / 3600000;
+  const billableHours = actualHours;
   const earlyMinutes = clockIn < shiftStart ? Math.round((shiftStart.getTime() - clockIn.getTime()) / 60000) : 0;
   const lateMinutes = clockOut > shiftEnd ? Math.round((clockOut.getTime() - shiftEnd.getTime()) / 60000) : 0;
 
