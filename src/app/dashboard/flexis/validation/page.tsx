@@ -10,7 +10,6 @@ export default async function DashboardValidationPage() {
     shifts(date, start_time, end_time, location_id, locations(name))
   `;
 
-  // Entrées à valider (non validées, pointage complet)
   const { data: pending } = await supabase
     .from('time_entries')
     .select(selectQuery)
@@ -18,7 +17,6 @@ export default async function DashboardValidationPage() {
     .not('clock_out', 'is', null)
     .order('created_at', { ascending: false });
 
-  // Historique des entrées validées
   const { data: validated } = await supabase
     .from('time_entries')
     .select(selectQuery)
@@ -27,9 +25,14 @@ export default async function DashboardValidationPage() {
     .order('validated_at', { ascending: false });
 
   return (
-    <ValidationTable
-      entries={pending || []}
-      validatedEntries={validated || []}
-    />
+    <>
+      <div style={{ background: 'red', color: 'white', padding: '20px', fontSize: '24px' }}>
+        TEST — pending: {pending?.length ?? 0} / validated: {validated?.length ?? 0}
+      </div>
+      <ValidationTable
+        entries={pending || []}
+        validatedEntries={validated || []}
+      />
+    </>
   );
 }
