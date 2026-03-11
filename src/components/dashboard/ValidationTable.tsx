@@ -487,7 +487,7 @@ function EntryCard({
               <div className="text-sm font-bold text-gray-800">{formatEuro(cost.total_salary)}</div>
             </div>
             <div className="p-2.5 bg-gray-50 rounded-xl text-center">
-              <div className="text-[10px] text-gray-400 font-medium">Cotisation 28%</div>
+              <div className="text-[10px] text-gray-400 font-medium">{w?.status === 'student' ? 'Cotisation 5,42%' : 'Cotisation 28%'}</div>
               <div className="text-sm font-bold text-gray-800">{formatEuro(cost.employer_contribution)}</div>
             </div>
             <div className="p-2.5 bg-orange-50 rounded-xl text-center">
