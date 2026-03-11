@@ -54,7 +54,7 @@ export default function ValidationTable({ entries, validatedEntries }: Props) {
   const monthStats = historyEntries.reduce(
     (acc, e) => {
       const info = getBillableInfo(e);
-      const cost = calculateCost(info.billableHours, e.flexi_workers?.hourly_rate || 12.53);
+      const cost = calculateCost(info.billableHours, e.flexi_workers?.hourly_rate || 12.53, false, e.flexi_workers?.status || 'other');
       return {
         hours: acc.hours + info.billableHours,
         cost: acc.cost + cost.total_cost,
@@ -356,7 +356,7 @@ function EntryCard({
   const w = entry.flexi_workers;
   const s = entry.shifts;
   const info = getBillableInfo(entry);
-  const cost = calculateCost(info.billableHours, w?.hourly_rate || 12.53);
+  const cost = calculateCost(info.billableHours, w?.hourly_rate || 12.53, false, w?.status || 'other');
   const isExpanded = expandedId === entry.id;
   const isEditing = editId === entry.id;
   const hasExtra = info.earlyMinutes > 0 || info.lateMinutes > 0;
@@ -519,7 +519,7 @@ function EntryCard({
                 const [hs, ms] = editStart.split(':').map(Number);
                 const [he, me] = editEnd.split(':').map(Number);
                 const newHours = Math.max(0, (he * 60 + me - hs * 60 - ms) / 60);
-                const newCost = calculateCost(newHours, w?.hourly_rate || 12.53);
+                const newCost = calculateCost(newHours, w?.hourly_rate || 12.53, false, w?.status || 'other');
                 return (
                   <div className="text-xs text-blue-600 mb-3">
                     Nouveau calcul : <strong>{formatH(newHours)}</strong> → <strong>{formatEuro(newCost.total_cost)}</strong>
