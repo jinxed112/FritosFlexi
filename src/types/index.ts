@@ -46,6 +46,7 @@ export interface FlexiWorker {
   pin_code: string | null;
   profile_complete: boolean;
   is_active: boolean;
+  default_location_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -57,10 +58,11 @@ export interface FlexiAvailability {
   worker_id: string;
   date: string;
   type: AvailabilityType;
+  preferred_location_id: string | null;
   created_at: string;
 }
 
-export type AvailabilityType = 'full_day' | 'midi' | 'soir';
+export type AvailabilityType = 'available' | 'flexible' | 'unavailable';
 
 export interface Shift {
   id: string;
@@ -217,6 +219,7 @@ export interface UpdateProfileInput {
   email?: string;
   iban?: string;
   status?: WorkerStatus;
+  default_location_id?: string | null;
 }
 
 export interface CreateShiftInput {

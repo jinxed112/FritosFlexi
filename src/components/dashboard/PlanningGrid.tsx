@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useTransition } from 'react';
+import { useState, useEffect, useTransition, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { createMultiShifts, updateShift, deleteShift, cancelShift } from '@/lib/actions/shifts';
@@ -14,28 +14,17 @@ const DAY_NAMES_SHORT = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.']
 const DAY_NAMES_FULL = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
 const MONTH_NAMES = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 
-// Jours fériés belges fixes + variables 2026
-// À mettre à jour chaque année pour les fériés variables (Pâques, Ascension, Pentecôte)
 const BELGIAN_HOLIDAYS_2026 = new Set([
-  '2026-01-01', // Nouvel An
-  '2026-04-06', // Lundi de Pâques
-  '2026-05-01', // Fête du Travail
-  '2026-05-14', // Ascension
-  '2026-05-25', // Lundi de Pentecôte
-  '2026-07-21', // Fête nationale
-  '2026-08-15', // Assomption
-  '2026-11-01', // Toussaint
-  '2026-11-11', // Armistice
-  '2026-12-25', // Noël
+  '2026-01-01', '2026-04-06', '2026-05-01', '2026-05-14',
+  '2026-05-25', '2026-07-21', '2026-08-15', '2026-11-01',
+  '2026-11-11', '2026-12-25',
 ]);
 
-/** Retourne true si la date est un dimanche ou un jour férié belge */
 function checkSundayOrHoliday(dateStr: string): boolean {
   const d = new Date(dateStr);
   return d.getDay() === 0 || BELGIAN_HOLIDAYS_2026.has(dateStr);
 }
 
-/** Coût total employeur d'un shift : salaire + cotisation patronale + transport */
 function shiftTotalCost(
   hours: number,
   hourlyRate: number,
@@ -73,6 +62,42 @@ const PRESETS = [
   { label: 'Journée', start: '11:00', end: '21:30' },
 ];
 
+// ── Availability helpers ──────────────────────────────────────
+
+type AvailEntry = { type: string; preferred_location_id: string | null };
+
+function AvailBadge({ avail, locationFilter }: { avail: AvailEntry | undefined; locationFilter: string }) {
+  if (!avail) return null;
+
+  // If filtering by location, dim if worker prefers a different site
+  const siteMatch =
+    locationFilter === 'all' ||
+    avail.preferred_location_id === null ||
+    avail.preferred_location_id === locationFilter;
+
+  const styles: Record<string, string> = {
+    available: 'bg-emerald-400 text-white',
+    flexible: 'bg-amber-300 text-white',
+    unavailable: 'bg-red-300 text-white',
+  };
+  const labels: Record<string, string> = {
+    available: 'Dispo',
+    flexible: 'Flex',
+    unavailable: 'Indispo',
+  };
+
+  return (
+    <span
+      className={`inline-block text-[9px] font-semibold px-1.5 py-0.5 rounded-full leading-none ${styles[avail.type] || 'bg-gray-200 text-gray-500'} ${!siteMatch ? 'opacity-40' : ''}`}
+      title={!siteMatch ? 'Préfère un autre site' : undefined}
+    >
+      {labels[avail.type] || avail.type}
+    </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+
 interface Props {
   shifts: any[];
   locations: any[];
@@ -80,12 +105,23 @@ interface Props {
   weekStart: string;
   prevWeek: string;
   nextWeek: string;
+  availabilities: { worker_id: string; date: string; type: string; preferred_location_id: string | null }[];
 }
 
-export default function PlanningGrid({ shifts, locations, allWorkers, weekStart, prevWeek, nextWeek }: Props) {
+export default function PlanningGrid({ shifts, locations, allWorkers, weekStart, prevWeek, nextWeek, availabilities }: Props) {
   const router = useRouter();
   const [filterLocationId, setFilterLocationId] = useState<string>('all');
   const filteredShifts = filterLocationId === 'all' ? shifts : shifts.filter((s: any) => s.location_id === filterLocationId);
+
+  // Build availMap[workerId][date] for fast lookup
+  const availMap = useMemo(() => {
+    const map: Record<string, Record<string, AvailEntry>> = {};
+    availabilities.forEach((a) => {
+      if (!map[a.worker_id]) map[a.worker_id] = {};
+      map[a.worker_id][a.date] = { type: a.type, preferred_location_id: a.preferred_location_id };
+    });
+    return map;
+  }, [availabilities]);
 
   const [teamIds, setTeamIds] = useState<string[]>(() =>
     [...new Set(shifts.filter((s: any) => s.worker_id).map((s: any) => s.worker_id))]
@@ -213,6 +249,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
   const handleDeleteShift = () => { if (!editingShift) return; startTransition(async () => { await deleteShift(editingShift.id); setEditingShift(null); router.refresh(); }); };
   const handleCancelShift = () => { if (!editingShift) return; startTransition(async () => { await cancelShift(editingShift.id); setEditingShift(null); router.refresh(); }); };
   const handleAcceptShift = () => { if (!editingShift) return; startTransition(async () => { await updateShift(editingShift.id, { status: 'accepted' }); setEditingShift((prev: any) => ({ ...prev, status: 'accepted' })); router.refresh(); }); };
+
   const handleRetryDimona = async () => {
     if (!editingShift) return;
     setDimonaRetrying(true); setDimonaRetryResult(null);
@@ -235,14 +272,13 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
   const formatH = (h: number) => { const hrs = Math.floor(h); const mins = Math.round((h - hrs) * 60); return mins > 0 ? `${hrs}h${mins.toString().padStart(2, '0')}` : `${hrs}h`; };
 
   /* ============================================================
-     MOBILE VIEW — day-by-day vertical
+     MOBILE VIEW
      ============================================================ */
   const mobileDay = weekDays[mobileDayIdx];
   const mobileStats = dayStats[mobileDayIdx];
 
   const renderMobile = () => (
     <div className="lg:hidden">
-      {/* Week nav */}
       <div className="flex items-center justify-between mb-3">
         <Link href={`/dashboard/flexis/planning?week=${prevWeek}`} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400"><ChevronLeft size={18} /></Link>
         <span className="text-xs font-medium text-gray-600">
@@ -251,7 +287,6 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
         <Link href={`/dashboard/flexis/planning?week=${nextWeek}`} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400"><ChevronRight size={18} /></Link>
       </div>
 
-      {/* Location filter pills */}
       <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1 -mx-1 px-1">
         <button onClick={() => setFilterLocationId('all')}
           className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filterLocationId === 'all' ? 'bg-orange-500 text-white' : 'bg-white border border-gray-200 text-gray-500'}`}>Tous</button>
@@ -261,24 +296,34 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
         ))}
       </div>
 
-      {/* Day pills */}
       <div className="grid grid-cols-7 gap-1 mb-4">
         {weekDays.map((d, i) => {
           const sel = i === mobileDayIdx;
           const isToday = d.iso === today;
           const has = filteredShifts.some((s: any) => s.date === d.iso && s.status !== 'cancelled' && s.status !== 'refused');
+          // Availability counts for this day
+          const dayAvailTypes = teamWorkers.map((w: any) => availMap[w.id]?.[d.iso]?.type).filter(Boolean);
+          const hasAvailable = dayAvailTypes.includes('available');
+          const hasFlexible = dayAvailTypes.includes('flexible');
+
           return (
             <button key={d.iso} onClick={() => setMobileDayIdx(i)}
               className={`py-2 rounded-xl text-center transition-all ${sel ? 'bg-orange-500 text-white shadow-md shadow-orange-200' : isToday ? 'bg-orange-50 text-orange-600 border border-orange-200' : 'bg-white border border-gray-100 text-gray-500'}`}>
               <div className="text-[9px] font-medium uppercase opacity-70">{d.dayName}</div>
               <div className="text-base font-bold leading-tight">{d.num}</div>
-              {has && !sel && <div className="w-1 h-1 rounded-full bg-orange-400 mx-auto mt-0.5" />}
+              {/* Availability dot indicator */}
+              {!sel && (
+                <div className="flex justify-center gap-0.5 mt-0.5">
+                  {hasAvailable && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+                  {hasFlexible && <div className="w-1.5 h-1.5 rounded-full bg-amber-300" />}
+                  {has && <div className="w-1 h-1 rounded-full bg-orange-400" />}
+                </div>
+              )}
             </button>
           );
         })}
       </div>
 
-      {/* Day header */}
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-bold text-gray-900 capitalize">{mobileDay.dayFull} {mobileDay.num} {mobileDay.month}</h3>
         <div className="flex items-center gap-3 text-[11px] text-gray-400">
@@ -287,7 +332,6 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
         </div>
       </div>
 
-      {/* Worker cards */}
       <div className="space-y-2 mb-4">
         {teamWorkers.length === 0 && (
           <div className="bg-white rounded-xl border border-dashed border-gray-200 p-6 text-center">
@@ -298,12 +342,16 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
         )}
         {teamWorkers.map((w: any) => {
           const ws = filteredShifts.filter((s: any) => s.worker_id === w.id && s.date === mobileDay.iso);
+          const avail = availMap[w.id]?.[mobileDay.iso];
           return (
             <div key={w.id} className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
               <div className="flex items-center gap-2.5 mb-2">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-white text-[10px] font-bold">{w.first_name[0]}{w.last_name[0]}</div>
-                <div className="flex-1 min-w-0"><div className="font-medium text-gray-800 text-sm truncate">{w.first_name} {w.last_name}</div></div>
-                {ws.length === 0 && (
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-gray-800 text-sm truncate">{w.first_name} {w.last_name}</div>
+                  <AvailBadge avail={avail} locationFilter={filterLocationId} />
+                </div>
+                {ws.length === 0 && avail?.type !== 'unavailable' && (
                   <button onClick={() => openShiftPanel(w, mobileDay.iso)}
                     className="w-8 h-8 rounded-lg bg-orange-50 hover:bg-orange-100 text-orange-500 flex items-center justify-center"><Plus size={16} /></button>
                 )}
@@ -353,7 +401,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
   );
 
   /* ============================================================
-     DESKTOP VIEW — table grid
+     DESKTOP VIEW
      ============================================================ */
   const renderDesktop = () => (
     <div className="hidden lg:block">
@@ -423,8 +471,12 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
               {teamWorkers.map((w: any) => {
                 const wShifts = filteredShifts.filter((s: any) => s.worker_id === w.id);
                 const wH = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused').reduce((sum: number, s: any) => sum + calculateHours(s.start_time, s.end_time), 0);
-                const wBreakdown = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused').reduce((acc: { salary: number; transport: number; total: number }, s: any) => { const c = shiftTotalCost(calculateHours(s.start_time, s.end_time), w.hourly_rate || getDefaultRate(w.status), w.status || 'other', checkSundayOrHoliday(s.date), s.locations?.name, w.home_lat, w.home_lng); return { salary: acc.salary + c.salary, transport: acc.transport + c.transport, total: acc.total + c.total }; }, { salary: 0, transport: 0, total: 0 });
+                const wBreakdown = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused').reduce((acc: { salary: number; transport: number; total: number }, s: any) => {
+                  const c = shiftTotalCost(calculateHours(s.start_time, s.end_time), w.hourly_rate || getDefaultRate(w.status), w.status || 'other', checkSundayOrHoliday(s.date), s.locations?.name, w.home_lat, w.home_lng);
+                  return { salary: acc.salary + c.salary, transport: acc.transport + c.transport, total: acc.total + c.total };
+                }, { salary: 0, transport: 0, total: 0 });
                 const wC = wBreakdown.total;
+
                 return (
                   <tr key={w.id} className="border-b border-gray-50 hover:bg-gray-50/30">
                     <td className="px-4 py-3 align-top sticky left-0 bg-white z-10">
@@ -448,9 +500,17 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                     </td>
                     {weekDays.map((d) => {
                       const cell = wShifts.filter((s: any) => s.date === d.iso);
+                      const avail = availMap[w.id]?.[d.iso];
+                      const hasShift = cell.length > 0;
                       return (
                         <td key={d.iso} className={`px-1.5 py-2 align-top ${d.iso === today ? 'bg-orange-50/30' : ''}`}>
                           <div className="min-h-[3rem] space-y-1">
+                            {/* Availability badge — shown when no shift */}
+                            {!hasShift && avail && (
+                              <div className="flex justify-center mb-1">
+                                <AvailBadge avail={avail} locationFilter={filterLocationId} />
+                              </div>
+                            )}
                             {cell.map((s: any) => {
                               const st = STATUS_STYLES[s.status] || STATUS_STYLES.draft;
                               const h = calculateHours(s.start_time, s.end_time);
@@ -464,7 +524,20 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                               );
                             })}
                             {cell.length === 0 && (
-                              <button onClick={() => openShiftPanel(w, d.iso)} className="w-full h-10 flex items-center justify-center text-gray-300 hover:text-orange-400 hover:bg-orange-50 rounded-lg transition-colors"><Plus size={16} /></button>
+                              <button
+                                onClick={() => openShiftPanel(w, d.iso)}
+                                className={`w-full h-10 flex items-center justify-center rounded-lg transition-colors ${
+                                  avail?.type === 'available'
+                                    ? 'text-emerald-400 hover:text-emerald-600 hover:bg-emerald-50'
+                                    : avail?.type === 'flexible'
+                                    ? 'text-amber-400 hover:text-amber-600 hover:bg-amber-50'
+                                    : avail?.type === 'unavailable'
+                                    ? 'text-red-200 hover:text-red-400 hover:bg-red-50'
+                                    : 'text-gray-300 hover:text-orange-400 hover:bg-orange-50'
+                                }`}
+                              >
+                                <Plus size={16} />
+                              </button>
                             )}
                           </div>
                         </td>
@@ -482,6 +555,9 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400" /> En attente</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-gray-300" /> Brouillon</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-red-400" /> Annulé</span>
+            <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400" /> Dispo</span>
+            <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-300" /> Flexible</span>
+            <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-red-300" /> Indispo</span>
           </div>
           <div className="flex items-center gap-6 text-gray-500">
             <span>Heures : <strong className="text-gray-700">{formatH(totalHours)}</strong></span>
@@ -495,7 +571,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
   );
 
   /* ============================================================
-     SHARED PANELS (Team, Create Shift, Edit Shift)
+     SHARED PANELS
      ============================================================ */
   return (
     <>
@@ -592,10 +668,15 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                   {weekDays.map((d) => {
                     const sel = selectedDays.includes(d.iso);
                     const has = shifts.some((s: any) => s.worker_id === shiftWorker.id && s.date === d.iso && s.status !== 'cancelled');
+                    const avail = availMap[shiftWorker.id]?.[d.iso];
                     return (
                       <button key={d.iso} onClick={() => !has && toggleDay(d.iso)} disabled={has}
-                        className={`py-2 rounded-lg text-center text-xs font-medium transition-colors ${has ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : sel ? 'bg-orange-500 text-white' : d.iso === today ? 'bg-orange-50 text-orange-600' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}>
-                        <div className="text-[10px] opacity-60">{d.dayName}</div><div>{d.num}</div>
+                        className={`py-2 rounded-lg text-center text-xs font-medium transition-colors relative ${has ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : sel ? 'bg-orange-500 text-white' : d.iso === today ? 'bg-orange-50 text-orange-600' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}>
+                        <div className="text-[10px] opacity-60">{d.dayName}</div>
+                        <div>{d.num}</div>
+                        {!has && !sel && avail && (
+                          <div className={`absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${avail.type === 'available' ? 'bg-emerald-400' : avail.type === 'flexible' ? 'bg-amber-300' : 'bg-red-300'}`} />
+                        )}
                       </button>
                     );
                   })}
@@ -690,7 +771,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
               </div>
               <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl text-sm">
                 <span className="text-gray-500">Coût estimé</span>
-                <span className="font-bold text-gray-800">{formatEuro(shiftTotalCost(calculateHours(editStart + ':00', editEnd + ':00'), editingShift.flexi_workers?.hourly_rate || getDefaultRate(editingShift.flexi_workers?.status), editingShift.flexi_workers?.status || 'other', checkSundayOrHoliday(editingShift.date), editingShift.locations?.name, editingShift.flexi_workers?.home_lat, editingShift.flexi_workers?.home_lng))}</span>
+                <span className="font-bold text-gray-800">{formatEuro(shiftTotalCost(calculateHours(editStart + ':00', editEnd + ':00'), editingShift.flexi_workers?.hourly_rate || getDefaultRate(editingShift.flexi_workers?.status), editingShift.flexi_workers?.status || 'other', checkSundayOrHoliday(editingShift.date), editingShift.locations?.name, editingShift.flexi_workers?.home_lat, editingShift.flexi_workers?.home_lng).total)}</span>
               </div>
             </div>
             <div className="p-4 border-t space-y-2">

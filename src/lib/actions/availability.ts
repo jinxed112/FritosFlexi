@@ -6,11 +6,12 @@ import type { AvailabilityType } from '@/types';
 
 /**
  * Set availability for a specific date (flexi action)
- * Replaces all existing availabilities for that date
+ * One row per date — replaces existing entry for that date
  */
 export async function setAvailability(
   date: string,
-  types: AvailabilityType[]
+  type: AvailabilityType | null,
+  preferred_location_id: string | null = null
 ) {
   const supabase = createClient();
 
@@ -25,7 +26,7 @@ export async function setAvailability(
 
   if (!worker) return { error: 'Profil worker introuvable' };
 
-  // Check if there's an accepted shift on this date (cannot modify)
+  // Cannot modify if shift already accepted
   const { data: acceptedShifts } = await supabase
     .from('shifts')
     .select('id')
@@ -34,30 +35,33 @@ export async function setAvailability(
     .in('status', ['accepted', 'completed']);
 
   if (acceptedShifts && acceptedShifts.length > 0) {
-    return { error: 'Impossible de modifier la disponibilité : un shift est déjà accepté ce jour' };
+    return { error: 'Impossible de modifier : un shift est déjà accepté ce jour' };
   }
 
-  // Delete existing availabilities for this date
+  // Delete existing entry for this date
   await supabase
     .from('flexi_availabilities')
     .delete()
     .eq('worker_id', worker.id)
     .eq('date', date);
 
-  // Insert new availabilities
-  if (types.length > 0) {
-    const rows = types.map((type) => ({
+  // If type is null = "reset to no entry" (non renseigné)
+  if (type === null) {
+    revalidatePath('/flexi/availability');
+    revalidatePath('/dashboard/flexis/planning');
+    return { success: true };
+  }
+
+  const { error } = await supabase
+    .from('flexi_availabilities')
+    .insert({
       worker_id: worker.id,
       date,
       type,
-    }));
+      preferred_location_id: preferred_location_id || null,
+    });
 
-    const { error } = await supabase
-      .from('flexi_availabilities')
-      .insert(rows);
-
-    if (error) return { error: error.message };
-  }
+  if (error) return { error: error.message };
 
   revalidatePath('/flexi/availability');
   revalidatePath('/dashboard/flexis/planning');
@@ -74,7 +78,8 @@ export async function getAvailabilities(startDate: string, endDate: string) {
     .from('flexi_availabilities')
     .select(`
       *,
-      flexi_workers(id, first_name, last_name)
+      flexi_workers(id, first_name, last_name),
+      locations:preferred_location_id(id, name)
     `)
     .gte('date', startDate)
     .lte('date', endDate)

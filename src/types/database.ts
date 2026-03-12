@@ -70,6 +70,7 @@ export interface Database {
           framework_contract_date: string | null;
           profile_complete: boolean;
           is_active: boolean;
+          default_location_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -94,6 +95,7 @@ export interface Database {
           framework_contract_date?: string | null;
           profile_complete?: boolean;
           is_active?: boolean;
+          default_location_id?: string | null;
         };
         Update: {
           first_name?: string;
@@ -111,6 +113,7 @@ export interface Database {
           id_card_url?: string | null;
           framework_contract_date?: string | null;
           is_active?: boolean;
+          default_location_id?: string | null;
         };
       };
       flexi_availabilities: {
@@ -119,6 +122,7 @@ export interface Database {
           worker_id: string;
           date: string;
           type: string;
+          preferred_location_id: string | null;
           created_at: string;
         };
         Insert: {
@@ -126,11 +130,13 @@ export interface Database {
           worker_id: string;
           date: string;
           type: string;
+          preferred_location_id?: string | null;
         };
         Update: {
           worker_id?: string;
           date?: string;
           type?: string;
+          preferred_location_id?: string | null;
         };
       };
       shifts: {

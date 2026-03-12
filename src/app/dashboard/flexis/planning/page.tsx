@@ -38,12 +38,18 @@ export default async function DashboardPlanningPage({ searchParams }: { searchPa
     .eq('is_active', true)
     .order('name');
 
-  // All active workers (for the team selector)
   const { data: allWorkers } = await supabase
     .from('flexi_workers')
     .select('id, first_name, last_name, hourly_rate, status, profile_complete, ytd_earnings, home_lat, home_lng')
     .eq('is_active', true)
     .order('last_name');
+
+  // Load availabilities for the week
+  const { data: availabilities } = await supabase
+    .from('flexi_availabilities')
+    .select('worker_id, date, type, preferred_location_id')
+    .gte('date', startISO)
+    .lte('date', endISO);
 
   return (
     <PlanningGrid
@@ -53,6 +59,7 @@ export default async function DashboardPlanningPage({ searchParams }: { searchPa
       weekStart={startISO}
       prevWeek={prevMonday.toISOString().split('T')[0]}
       nextWeek={nextMonday.toISOString().split('T')[0]}
+      availabilities={availabilities || []}
     />
   );
 }

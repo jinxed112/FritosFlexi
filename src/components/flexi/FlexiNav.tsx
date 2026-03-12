@@ -2,12 +2,12 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { Briefcase, Calendar, Clock, User } from 'lucide-react';
+import { Briefcase, Calendar, CalendarCheck, User } from 'lucide-react';
 
 const navItems = [
   { href: '/flexi/missions', label: 'Missions', icon: Briefcase },
   { href: '/flexi/planning', label: 'Planning', icon: Calendar },
-  { href: '/flexi/clock', label: 'Pointage', icon: Clock },
+  { href: '/flexi/availability', label: 'Dispos', icon: CalendarCheck },
   { href: '/flexi/account', label: 'Profil', icon: User },
 ];
 
