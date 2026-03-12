@@ -239,6 +239,9 @@
       });
 
       var allOk = true;
+      var totalSynced = 0;
+      var errors = [];
+
       for (var g in groups) {
         setStatus('📤 Envoi groupe ' + g + ' (' + groups[g].length + ' worker(s))...', '#94a3b8');
         var payload = { TimesheetMonthForWorkers: groups[g] };
@@ -262,10 +265,27 @@
         if (!r.ok) {
           var errText = await r.text();
           console.error('[FritOS] GroupCalendar groupe ' + g + ' HTTP ' + r.status, errText);
-          setStatus('❌ Erreur groupe ' + g + ' : HTTP ' + r.status, '#ef4444');
+          setStatus('❌ Erreur HTTP ' + r.status + ' groupe ' + g, '#ef4444');
           allOk = false;
         } else {
-          console.log('[FritOS] GroupCalendar groupe ' + g + ' OK');
+          var respData = await r.json();
+          // respData peut être [] (succès total) ou un tableau d'objets avec result:false
+          var respArray = Array.isArray(respData) ? respData : [];
+          var failed = respArray.filter(function(w) { return w && w.result === false; });
+          var succeeded = groups[g].length - failed.length;
+          totalSynced += succeeded;
+
+          if (failed.length > 0) {
+            allOk = false;
+            failed.forEach(function(w) {
+              var msg = (w.messages && w.messages[0]) ? w.messages[0].message : 'Erreur inconnue';
+              var code = (w.messages && w.messages[0]) ? w.messages[0].code : '';
+              errors.push('Worker #' + w.workerId + ': ' + msg + (code ? ' [' + code + ']' : ''));
+              console.error('[FritOS] Rejeté par Partena worker #' + w.workerId + ':', JSON.stringify(w, null, 2));
+            });
+          }
+
+          console.log('[FritOS] GroupCalendar groupe ' + g + ' — OK: ' + succeeded + ', rejetés: ' + failed.length);
         }
       }
 
@@ -274,7 +294,19 @@
         setStatus('✅ ' + total + ' jour(s) synchronisé(s) avec succès !', '#22c55e');
         btn.textContent = '✅ Heures synchronisées';
         btn.style.background = '#22c55e';
+      } else if (errors.length > 0) {
+        // Afficher les erreurs dans le preview
+        var errHtml = '<div style="font-size:11px;color:#fbbf24;margin-bottom:6px;">⚠️ ' + totalSynced + ' synchro(s) OK — ' + errors.length + ' rejeté(s) par Partena :</div>';
+        errors.forEach(function(e) {
+          errHtml += '<div style="font-size:11px;color:#ef4444;padding:4px 0;border-bottom:1px solid #1e293b;">' + e + '</div>';
+        });
+        document.getElementById('fritos-preview').innerHTML = errHtml;
+        setStatus('⚠️ ' + errors.length + ' worker(s) rejeté(s) — voir détails ci-dessus', '#f59e0b');
+        btn.disabled = false;
+        btn.textContent = '⏱ Sync heures vers Partena';
+        btn.style.background = '#3b82f6';
       } else {
+        setStatus('❌ Erreur lors de la synchronisation', '#ef4444');
         btn.disabled = false;
         btn.textContent = '⏱ Sync heures vers Partena';
         btn.style.background = '#3b82f6';
