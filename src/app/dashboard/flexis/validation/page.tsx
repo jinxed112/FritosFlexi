@@ -1,12 +1,22 @@
 import { createClient } from '@/lib/supabase/server';
-import ValidationTable from '@/components/dashboard/ValidationTable';
+import ValidationBoard from '@/components/dashboard/ValidationBoard';
 
-export default async function DashboardValidationPage() {
+export default async function DashboardValidationPage({
+  searchParams,
+}: {
+  searchParams: { from?: string; to?: string };
+}) {
   const supabase = createClient();
+
+  const today = new Date().toISOString().split('T')[0];
+  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
+  const from = searchParams.from || yesterday;
+  const to = searchParams.to || today;
 
   const selectQuery = `
     *,
-    flexi_workers(first_name, last_name, hourly_rate, status),
+    flexi_workers(id, first_name, last_name, hourly_rate, status),
     shifts(date, start_time, end_time, location_id, locations(name))
   `;
 
@@ -24,7 +34,7 @@ export default async function DashboardValidationPage() {
     .not('clock_out', 'is', null)
     .order('validated_at', { ascending: false });
 
-  // Shifts acceptés sans aucun time_entry (pointage manquant)
+  // Shifts acceptés sans time_entry, pas dans le futur
   const { data: acceptedShifts } = await supabase
     .from('shifts')
     .select(`
@@ -34,7 +44,7 @@ export default async function DashboardValidationPage() {
       time_entries(id)
     `)
     .eq('status', 'accepted')
-    .gte('date', new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString().split('T')[0]) // 60 derniers jours
+    .lte('date', today)
     .order('date', { ascending: false });
 
   const missingShifts = (acceptedShifts || []).filter(
@@ -42,10 +52,12 @@ export default async function DashboardValidationPage() {
   );
 
   return (
-    <ValidationTable
-      entries={pending || []}
-      validatedEntries={validated || []}
-      missingShifts={missingShifts}
+    <ValidationBoard
+      allPending={(pending || []).filter((e) => e.shifts !== null)}
+      allValidated={(validated || []).filter((e) => e.shifts !== null)}
+      allMissing={missingShifts}
+      from={from}
+      to={to}
     />
   );
 }
