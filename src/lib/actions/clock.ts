@@ -47,6 +47,7 @@ export async function clockIn(input: {
 
 /**
  * Clock OUT — authenticated user (from flexi portal)
+ * Uses adminClient to bypass RLS — workers have INSERT/SELECT only on time_entries
  */
 export async function clockOut(input: {
   shift_id: string;
@@ -54,6 +55,7 @@ export async function clockOut(input: {
   longitude?: number;
 }) {
   const supabase = createClient();
+  const admin = createAdminClient();
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Non connecté' };
@@ -66,7 +68,8 @@ export async function clockOut(input: {
 
   if (!worker) return { error: 'Profil worker introuvable' };
 
-  const { data: entry } = await supabase
+  // Find active entry — use admin to ensure visibility regardless of RLS
+  const { data: entry } = await admin
     .from('time_entries')
     .select('*')
     .eq('shift_id', input.shift_id)
@@ -76,13 +79,18 @@ export async function clockOut(input: {
 
   if (!entry) return { error: 'Aucun pointage actif trouvé' };
 
-  const { data, error } = await supabase
+  const clockOut = new Date();
+  const clockIn = new Date(entry.clock_in);
+  const hoursWorked = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60);
+
+  const { data, error } = await admin
     .from('time_entries')
     .update({
-      clock_out: new Date().toISOString(),
+      clock_out: clockOut.toISOString(),
       geo_lat_out: input.latitude,
       geo_lng_out: input.longitude,
       geo_valid_out: true,
+      actual_hours: Math.round(hoursWorked * 100) / 100,
     })
     .eq('id', entry.id)
     .select()
