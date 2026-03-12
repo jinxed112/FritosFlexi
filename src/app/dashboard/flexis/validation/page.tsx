@@ -34,6 +34,14 @@ export default async function DashboardValidationPage({
     .not('clock_out', 'is', null)
     .order('validated_at', { ascending: false });
 
+  // Pointages ouverts : clock_in présent mais clock_out null
+  const { data: openEntries } = await supabase
+    .from('time_entries')
+    .select(selectQuery)
+    .is('clock_out', null)
+    .not('clock_in', 'is', null)
+    .order('clock_in', { ascending: false });
+
   // Shifts acceptés sans time_entry, pas dans le futur
   const { data: acceptedShifts } = await supabase
     .from('shifts')
@@ -56,6 +64,7 @@ export default async function DashboardValidationPage({
       allPending={(pending || []).filter((e) => e.shifts !== null)}
       allValidated={(validated || []).filter((e) => e.shifts !== null)}
       allMissing={missingShifts}
+      allOpen={(openEntries || []).filter((e) => e.shifts !== null)}
       from={from}
       to={to}
     />

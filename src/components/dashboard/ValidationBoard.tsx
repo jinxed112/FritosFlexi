@@ -56,11 +56,12 @@ interface Props {
   allPending: any[];
   allValidated: any[];
   allMissing: any[];
+  allOpen: any[];
   from: string;
   to: string;
 }
 
-export default function ValidationBoard({ allPending, allValidated, allMissing, from, to }: Props) {
+export default function ValidationBoard({ allPending, allValidated, allMissing, allOpen, from, to }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -82,19 +83,22 @@ export default function ValidationBoard({ allPending, allValidated, allMissing, 
   const pending = allPending.filter((e) => inRange(e.shifts?.date || ''));
   const validated = allValidated.filter((e) => inRange(e.shifts?.date || ''));
   const missing = allMissing.filter((s) => inRange(s.date || ''));
+  const open = allOpen.filter((e) => inRange(e.shifts?.date || ''));
 
   // Group everything by date
   const byDate = useMemo(() => {
-    const map: Record<string, { pending: any[]; validated: any[]; missing: any[] }> = {};
-    const ensure = (d: string) => { if (!map[d]) map[d] = { pending: [], validated: [], missing: [] }; };
+    const map: Record<string, { pending: any[]; validated: any[]; missing: any[]; open: any[] }> = {};
+    const ensure = (d: string) => { if (!map[d]) map[d] = { pending: [], validated: [], missing: [], open: [] }; };
     pending.forEach((e) => { const d = e.shifts?.date; if (d) { ensure(d); map[d].pending.push(e); } });
     validated.forEach((e) => { const d = e.shifts?.date; if (d) { ensure(d); map[d].validated.push(e); } });
     missing.forEach((s) => { const d = s.date; if (d) { ensure(d); map[d].missing.push(s); } });
+    open.forEach((e) => { const d = e.shifts?.date; if (d) { ensure(d); map[d].open.push(e); } });
     return Object.entries(map).sort(([a], [b]) => b.localeCompare(a));
-  }, [pending, validated, missing]);
+  }, [pending, validated, missing, open]);
 
   const totalPending = allPending.length;
   const totalMissing = allMissing.length;
+  const totalOpen = allOpen.length;
 
   // Quick range presets
   const today = new Date().toISOString().split('T')[0];
@@ -140,7 +144,9 @@ export default function ValidationBoard({ allPending, allValidated, allMissing, 
   const openEdit = (entry: any) => {
     setEditingEntry(entry);
     setEditStart(new Date(entry.clock_in).toTimeString().slice(0, 5));
-    setEditEnd(new Date(entry.clock_out).toTimeString().slice(0, 5));
+    // Si pas de clock_out, pré-remplir avec l'heure de fin du shift
+    const fallbackEnd = entry.shifts?.end_time?.slice(0, 5) || new Date().toTimeString().slice(0, 5);
+    setEditEnd(entry.clock_out ? new Date(entry.clock_out).toTimeString().slice(0, 5) : fallbackEnd);
   };
 
   const saveEdit = () => {
@@ -207,6 +213,11 @@ export default function ValidationBoard({ allPending, allValidated, allMissing, 
             {totalPending > 0 && (
               <span className="text-xs font-medium text-orange-500 bg-orange-50 px-2 py-0.5 rounded-full">
                 {totalPending} à valider
+              </span>
+            )}
+            {totalOpen > 0 && (
+              <span className="text-xs font-medium text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">
+                {totalOpen} sortie(s) manquante(s)
               </span>
             )}
             {totalMissing > 0 && (
@@ -299,7 +310,7 @@ export default function ValidationBoard({ allPending, allValidated, allMissing, 
 
       {/* ─── BY DATE ─── */}
       <div className="space-y-6">
-        {byDate.map(([date, { pending: dp, validated: dv, missing: dm }]) => {
+        {byDate.map(([date, { pending: dp, validated: dv, missing: dm, open: dop }]) => {
           const dayHours = [...dp, ...dv].reduce((sum, e) => sum + getBillableInfo(e).billableHours, 0);
           const dayCost = [...dp, ...dv].reduce((sum, e) => {
             const info = getBillableInfo(e);
@@ -321,6 +332,11 @@ export default function ValidationBoard({ allPending, allValidated, allMissing, 
                       {new Date(date + 'T00:00:00').toLocaleDateString('fr-BE', { day: 'numeric', month: 'long', year: 'numeric' })}
                     </span>
                   </div>
+                  {dop.length > 0 && (
+                    <span className="text-[10px] font-semibold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">
+                      {dop.length} sortie{dop.length > 1 ? 's' : ''} manquante{dop.length > 1 ? 's' : ''}
+                    </span>
+                  )}
                   {dm.length > 0 && (
                     <span className="text-[10px] font-semibold text-red-400 bg-red-50 px-2 py-0.5 rounded-full">
                       {dm.length} manquant{dm.length > 1 ? 's' : ''}
@@ -349,6 +365,14 @@ export default function ValidationBoard({ allPending, allValidated, allMissing, 
 
               {/* Cards grid */}
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {/* Open entries — clock_in but no clock_out */}
+                {dop.map((entry: any) => (
+                  <OpenCard
+                    key={entry.id}
+                    entry={entry}
+                    onClockOut={() => openEdit(entry)}
+                  />
+                ))}
                 {/* Missing shifts */}
                 {dm.map((shift: any) => (
                   <MissingCard
@@ -535,6 +559,72 @@ export default function ValidationBoard({ allPending, allValidated, allMissing, 
         <div className="fixed inset-0 z-20" onClick={() => setShowDatePicker(false)} />
       )}
     </>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Carte pointage ouvert (clock_in sans clock_out)
+// ─────────────────────────────────────────────
+function OpenCard({ entry, onClockOut }: { entry: any; onClockOut: () => void }) {
+  const w = entry.flexi_workers;
+  const s = entry.shifts;
+  const clockIn = new Date(entry.clock_in);
+  const clockInStr = clockIn.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' });
+  const sinceMinutes = Math.round((Date.now() - clockIn.getTime()) / 60000);
+  const sinceStr = sinceMinutes >= 60
+    ? `${Math.floor(sinceMinutes / 60)}h${String(sinceMinutes % 60).padStart(2, '0')} en cours`
+    : `${sinceMinutes}min en cours`;
+
+  return (
+    <div className="bg-white rounded-2xl border border-blue-100 shadow-sm overflow-hidden">
+      <div className="p-3.5">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-blue-400 to-indigo-500 text-white font-bold text-xs flex-shrink-0">
+            {w?.first_name?.[0]}{w?.last_name?.[0]}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-gray-900 text-sm mb-0.5">{w?.first_name} {w?.last_name}</div>
+            <div className="flex items-center gap-1.5 text-xs text-gray-400">
+              <MapPin size={10} className="text-gray-300" />
+              <span>{s?.locations?.name || '—'}</span>
+            </div>
+          </div>
+          <span className="text-[10px] font-semibold text-blue-500 bg-blue-50 px-2 py-1 rounded-lg flex-shrink-0">
+            Sortie manquante
+          </span>
+        </div>
+
+        <div className="mt-2.5 grid grid-cols-2 gap-2 text-[11px]">
+          <div className="bg-gray-50 rounded-xl px-2.5 py-1.5">
+            <div className="text-gray-400 mb-0.5">Shift prévu</div>
+            <div className="font-medium text-gray-700 flex items-center gap-1">
+              <Clock size={10} className="text-gray-300" />
+              {s?.start_time?.slice(0, 5)} → {s?.end_time?.slice(0, 5)}
+            </div>
+          </div>
+          <div className="bg-blue-50 rounded-xl px-2.5 py-1.5">
+            <div className="text-blue-400 mb-0.5">Pointé à</div>
+            <div className="font-medium text-blue-700 flex items-center gap-1">
+              <Clock size={10} className="text-blue-300" />
+              {clockInStr} → <span className="text-blue-300">?</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 mt-2">
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-500 font-medium">
+            ⏱ {sinceStr}
+          </span>
+        </div>
+
+        <button
+          onClick={onClockOut}
+          className="mt-2.5 w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-xs font-semibold transition-colors"
+        >
+          <Pencil size={12} /> Saisir l&apos;heure de sortie
+        </button>
+      </div>
+    </div>
   );
 }
 
