@@ -4,7 +4,6 @@ import PlanningGrid from '@/components/dashboard/PlanningGrid';
 export default async function DashboardPlanningPage({ searchParams }: { searchParams: { week?: string } }) {
   const supabase = createClient();
 
-  // Week navigation: ?week=2026-02-09 or default to current week
   const now = new Date();
   let monday: Date;
   if (searchParams.week) {
@@ -15,10 +14,8 @@ export default async function DashboardPlanningPage({ searchParams }: { searchPa
   }
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
-
   const startISO = monday.toISOString().split('T')[0];
   const endISO = sunday.toISOString().split('T')[0];
-
   const prevMonday = new Date(monday);
   prevMonday.setDate(monday.getDate() - 7);
   const nextMonday = new Date(monday);
@@ -44,12 +41,18 @@ export default async function DashboardPlanningPage({ searchParams }: { searchPa
     .eq('is_active', true)
     .order('last_name');
 
-  // Load availabilities for the week
   const { data: availabilities } = await supabase
     .from('flexi_availabilities')
     .select('worker_id, date, type, preferred_location_id')
     .gte('date', startISO)
     .lte('date', endISO);
+
+  // Pointages validés de la semaine — pour afficher les heures réelles sur les shifts passés
+  const { data: timeEntries } = await supabase
+    .from('time_entries')
+    .select('shift_id, clock_in, clock_out, actual_hours, validated')
+    .in('shift_id', (shifts || []).map((s) => s.id))
+    .not('clock_out', 'is', null);
 
   return (
     <PlanningGrid
@@ -60,6 +63,7 @@ export default async function DashboardPlanningPage({ searchParams }: { searchPa
       prevWeek={prevMonday.toISOString().split('T')[0]}
       nextWeek={nextMonday.toISOString().split('T')[0]}
       availabilities={availabilities || []}
+      timeEntries={timeEntries || []}
     />
   );
 }

@@ -62,19 +62,14 @@ const PRESETS = [
   { label: 'Journée', start: '11:00', end: '21:30' },
 ];
 
-// ── Availability helpers ──────────────────────────────────────
-
 type AvailEntry = { type: string; preferred_location_id: string | null };
 
 function AvailBadge({ avail, locationFilter }: { avail: AvailEntry | undefined; locationFilter: string }) {
   if (!avail) return null;
-
-  // If filtering by location, dim if worker prefers a different site
   const siteMatch =
     locationFilter === 'all' ||
     avail.preferred_location_id === null ||
     avail.preferred_location_id === locationFilter;
-
   const styles: Record<string, string> = {
     available: 'bg-emerald-400 text-white',
     flexible: 'bg-amber-300 text-white',
@@ -85,7 +80,6 @@ function AvailBadge({ avail, locationFilter }: { avail: AvailEntry | undefined; 
     flexible: 'Flex',
     unavailable: 'Indispo',
   };
-
   return (
     <span
       className={`inline-block text-[9px] font-semibold px-1.5 py-0.5 rounded-full leading-none ${styles[avail.type] || 'bg-gray-200 text-gray-500'} ${!siteMatch ? 'opacity-40' : ''}`}
@@ -96,7 +90,13 @@ function AvailBadge({ avail, locationFilter }: { avail: AvailEntry | undefined; 
   );
 }
 
-// ─────────────────────────────────────────────────────────────
+interface TimeEntryData {
+  shift_id: string;
+  clock_in: string;
+  clock_out: string;
+  actual_hours: number | null;
+  validated: boolean;
+}
 
 interface Props {
   shifts: any[];
@@ -106,14 +106,14 @@ interface Props {
   prevWeek: string;
   nextWeek: string;
   availabilities: { worker_id: string; date: string; type: string; preferred_location_id: string | null }[];
+  timeEntries: TimeEntryData[];
 }
 
-export default function PlanningGrid({ shifts, locations, allWorkers, weekStart, prevWeek, nextWeek, availabilities }: Props) {
+export default function PlanningGrid({ shifts, locations, allWorkers, weekStart, prevWeek, nextWeek, availabilities, timeEntries }: Props) {
   const router = useRouter();
   const [filterLocationId, setFilterLocationId] = useState<string>('all');
   const filteredShifts = filterLocationId === 'all' ? shifts : shifts.filter((s: any) => s.location_id === filterLocationId);
 
-  // Build availMap[workerId][date] for fast lookup
   const availMap = useMemo(() => {
     const map: Record<string, Record<string, AvailEntry>> = {};
     availabilities.forEach((a) => {
@@ -122,6 +122,36 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
     });
     return map;
   }, [availabilities]);
+
+  // Map shiftId → time entry (priorité aux validées)
+  const timeEntryMap = useMemo(() => {
+    const map: Record<string, TimeEntryData> = {};
+    timeEntries.forEach((te) => {
+      const existing = map[te.shift_id];
+      // Préférer les entrées validées
+      if (!existing || te.validated) map[te.shift_id] = te;
+    });
+    return map;
+  }, [timeEntries]);
+
+  const today = new Date().toISOString().split('T')[0];
+
+  // Retourne les heures effectives : réelles si pointage dispo, sinon planifiées
+  const getEffectiveHours = (shift: any): { hours: number; isReal: boolean; isValidated: boolean } => {
+    const te = timeEntryMap[shift.id];
+    if (te && te.clock_out) {
+      const h = te.actual_hours ??
+        Math.round((new Date(te.clock_out).getTime() - new Date(te.clock_in).getTime()) / 36000) / 100;
+      return { hours: Math.max(0, h), isReal: true, isValidated: te.validated };
+    }
+    return { hours: calculateHours(shift.start_time, shift.end_time), isReal: false, isValidated: false };
+  };
+
+  const formatH = (h: number) => {
+    const hrs = Math.floor(h);
+    const mins = Math.round((h - hrs) * 60);
+    return mins > 0 ? `${hrs}h${mins.toString().padStart(2, '0')}` : `${hrs}h`;
+  };
 
   const [teamIds, setTeamIds] = useState<string[]>(() =>
     [...new Set(shifts.filter((s: any) => s.worker_id).map((s: any) => s.worker_id))]
@@ -166,7 +196,6 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
     return { date: d, iso: d.toISOString().split('T')[0], dayName: DAY_NAMES_SHORT[i], dayFull: DAY_NAMES_FULL[i], num: d.getDate(), month: MONTH_NAMES[d.getMonth()] };
   });
 
-  const today = new Date().toISOString().split('T')[0];
   const teamWorkers = allWorkers.filter((w: any) => teamIds.includes(w.id));
   const availableWorkers = allWorkers.filter((w: any) => !teamIds.includes(w.id));
   const filteredAvailable = availableWorkers.filter((w: any) =>
@@ -178,9 +207,9 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
     let totalHours = 0, totalSalary = 0, totalTransport = 0;
     const workerSet = new Set<string>();
     dayShifts.forEach((s: any) => {
-      const h = calculateHours(s.start_time, s.end_time);
-      const c = shiftTotalCost(h, s.flexi_workers?.hourly_rate || getDefaultRate(s.flexi_workers?.status), s.flexi_workers?.status || 'other', checkSundayOrHoliday(s.date), s.locations?.name, s.flexi_workers?.home_lat, s.flexi_workers?.home_lng);
-      totalHours += h; totalSalary += c.salary; totalTransport += c.transport;
+      const { hours } = getEffectiveHours(s);
+      const c = shiftTotalCost(hours, s.flexi_workers?.hourly_rate || getDefaultRate(s.flexi_workers?.status), s.flexi_workers?.status || 'other', checkSundayOrHoliday(s.date), s.locations?.name, s.flexi_workers?.home_lat, s.flexi_workers?.home_lng);
+      totalHours += hours; totalSalary += c.salary; totalTransport += c.transport;
       if (s.worker_id) workerSet.add(s.worker_id);
     });
     return { hours: totalHours, employees: workerSet.size, salary: Math.round(totalSalary * 100) / 100, transport: Math.round(totalTransport * 100) / 100, cost: Math.round((totalSalary + totalTransport) * 100) / 100 };
@@ -269,8 +298,6 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
     setDimonaRetrying(false);
   };
 
-  const formatH = (h: number) => { const hrs = Math.floor(h); const mins = Math.round((h - hrs) * 60); return mins > 0 ? `${hrs}h${mins.toString().padStart(2, '0')}` : `${hrs}h`; };
-
   /* ============================================================
      MOBILE VIEW
      ============================================================ */
@@ -301,17 +328,14 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
           const sel = i === mobileDayIdx;
           const isToday = d.iso === today;
           const has = filteredShifts.some((s: any) => s.date === d.iso && s.status !== 'cancelled' && s.status !== 'refused');
-          // Availability counts for this day
           const dayAvailTypes = teamWorkers.map((w: any) => availMap[w.id]?.[d.iso]?.type).filter(Boolean);
           const hasAvailable = dayAvailTypes.includes('available');
           const hasFlexible = dayAvailTypes.includes('flexible');
-
           return (
             <button key={d.iso} onClick={() => setMobileDayIdx(i)}
               className={`py-2 rounded-xl text-center transition-all ${sel ? 'bg-orange-500 text-white shadow-md shadow-orange-200' : isToday ? 'bg-orange-50 text-orange-600 border border-orange-200' : 'bg-white border border-gray-100 text-gray-500'}`}>
               <div className="text-[9px] font-medium uppercase opacity-70">{d.dayName}</div>
               <div className="text-base font-bold leading-tight">{d.num}</div>
-              {/* Availability dot indicator */}
               {!sel && (
                 <div className="flex justify-center gap-0.5 mt-0.5">
                   {hasAvailable && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
@@ -360,7 +384,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                 <div className="space-y-1.5">
                   {ws.map((s: any) => {
                     const st = STATUS_STYLES[s.status] || STATUS_STYLES.draft;
-                    const h = calculateHours(s.start_time, s.end_time);
+                    const { hours, isReal, isValidated } = getEffectiveHours(s);
                     return (
                       <div key={s.id} onClick={() => openEditPanel(s)}
                         className={`${st.bg} border ${st.border} rounded-lg px-3 py-2 flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform`}>
@@ -370,7 +394,9 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                         </div>
                         <div className="flex items-center gap-2">
                           {filterLocationId === 'all' && s.locations?.name && <span className="text-[10px] text-gray-400">{s.locations.name}</span>}
-                          <span className="text-[10px] text-gray-400">{formatH(h)}</span>
+                          <span className={`text-[10px] font-medium ${isValidated ? 'text-emerald-600' : isReal ? 'text-blue-500' : 'text-gray-400'}`}>
+                            {isValidated ? '✓ ' : isReal ? '⏱ ' : ''}{formatH(hours)}
+                          </span>
                         </div>
                       </div>
                     );
@@ -470,9 +496,11 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
               </tr>
               {teamWorkers.map((w: any) => {
                 const wShifts = filteredShifts.filter((s: any) => s.worker_id === w.id);
-                const wH = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused').reduce((sum: number, s: any) => sum + calculateHours(s.start_time, s.end_time), 0);
-                const wBreakdown = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused').reduce((acc: { salary: number; transport: number; total: number }, s: any) => {
-                  const c = shiftTotalCost(calculateHours(s.start_time, s.end_time), w.hourly_rate || getDefaultRate(w.status), w.status || 'other', checkSundayOrHoliday(s.date), s.locations?.name, w.home_lat, w.home_lng);
+                const activeShifts = wShifts.filter((s: any) => s.status !== 'cancelled' && s.status !== 'refused');
+                const wH = activeShifts.reduce((sum: number, s: any) => sum + getEffectiveHours(s).hours, 0);
+                const wBreakdown = activeShifts.reduce((acc: { salary: number; transport: number; total: number }, s: any) => {
+                  const { hours } = getEffectiveHours(s);
+                  const c = shiftTotalCost(hours, w.hourly_rate || getDefaultRate(w.status), w.status || 'other', checkSundayOrHoliday(s.date), s.locations?.name, w.home_lat, w.home_lng);
                   return { salary: acc.salary + c.salary, transport: acc.transport + c.transport, total: acc.total + c.total };
                 }, { salary: 0, transport: 0, total: 0 });
                 const wC = wBreakdown.total;
@@ -505,7 +533,6 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                       return (
                         <td key={d.iso} className={`px-1.5 py-2 align-top ${d.iso === today ? 'bg-orange-50/30' : ''}`}>
                           <div className="min-h-[3rem] space-y-1">
-                            {/* Availability badge — shown when no shift */}
                             {!hasShift && avail && (
                               <div className="flex justify-center mb-1">
                                 <AvailBadge avail={avail} locationFilter={filterLocationId} />
@@ -513,12 +540,26 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                             )}
                             {cell.map((s: any) => {
                               const st = STATUS_STYLES[s.status] || STATUS_STYLES.draft;
-                              const h = calculateHours(s.start_time, s.end_time);
+                              const { hours, isReal, isValidated } = getEffectiveHours(s);
+                              const isPast = s.date < today;
                               return (
                                 <div key={s.id} onClick={() => openEditPanel(s)}
                                   className={`${st.bg} border ${st.border} rounded-lg px-2 py-1.5 text-[10px] leading-tight cursor-pointer hover:shadow-md transition-shadow`}>
                                   <div className={`font-bold ${st.text}`}>{s.role || 'Polyvalent'}</div>
-                                  <div className="text-gray-500">{s.start_time?.slice(0, 5)} – {s.end_time?.slice(0, 5)} ({formatH(h)})</div>
+                                  <div className="text-gray-500">{s.start_time?.slice(0, 5)} – {s.end_time?.slice(0, 5)}</div>
+                                  {/* Heures réelles ou planifiées */}
+                                  {isValidated ? (
+                                    <div className="flex items-center gap-1 mt-0.5">
+                                      <span className="text-emerald-600 font-semibold">✓ {formatH(hours)}</span>
+                                      <span className="text-emerald-500 text-[9px]">réel</span>
+                                    </div>
+                                  ) : isReal ? (
+                                    <div className="flex items-center gap-1 mt-0.5">
+                                      <span className="text-blue-500 font-semibold">⏱ {formatH(hours)}</span>
+                                    </div>
+                                  ) : (
+                                    <div className="text-gray-400">{formatH(hours)}</div>
+                                  )}
                                   {filterLocationId === 'all' && s.locations?.name && <div className="text-gray-400 flex items-center gap-0.5 mt-0.5"><MapPin size={8} />{s.locations.name}</div>}
                                 </div>
                               );
@@ -558,6 +599,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
             <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400" /> Dispo</span>
             <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-300" /> Flexible</span>
             <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-red-300" /> Indispo</span>
+            <span className="flex items-center gap-1.5 text-emerald-600 font-medium">✓ réel = validé</span>
           </div>
           <div className="flex items-center gap-6 text-gray-500">
             <span>Heures : <strong className="text-gray-700">{formatH(totalHours)}</strong></span>
@@ -745,6 +787,25 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                   {(STATUS_STYLES[editingShift.status] || STATUS_STYLES.draft).label}
                 </span>
               </div>
+
+              {/* Afficher le pointage réel si dispo */}
+              {timeEntryMap[editingShift.id] && (() => {
+                const te = timeEntryMap[editingShift.id];
+                const { hours, isValidated } = getEffectiveHours(editingShift);
+                const ci = new Date(te.clock_in).toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' });
+                const co = new Date(te.clock_out).toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' });
+                return (
+                  <div className={`p-3 rounded-xl border text-sm ${isValidated ? 'bg-emerald-50 border-emerald-100' : 'bg-blue-50 border-blue-100'}`}>
+                    <div className={`text-xs font-semibold mb-1 ${isValidated ? 'text-emerald-700' : 'text-blue-700'}`}>
+                      {isValidated ? '✓ Pointage validé' : '⏱ Pointage non encore validé'}
+                    </div>
+                    <div className={`text-xs ${isValidated ? 'text-emerald-600' : 'text-blue-600'}`}>
+                      {ci} → {co} · <strong>{formatH(hours)}</strong>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1.5">Location</label>
                 <select value={editLocation} onChange={(e) => setEditLocation(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm bg-white">
