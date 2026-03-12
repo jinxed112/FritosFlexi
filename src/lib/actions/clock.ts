@@ -68,7 +68,6 @@ export async function clockOut(input: {
 
   if (!worker) return { error: 'Profil worker introuvable' };
 
-  // Find active entry — use admin to ensure visibility regardless of RLS
   const { data: entry } = await admin
     .from('time_entries')
     .select('*')
@@ -106,7 +105,6 @@ export async function clockOut(input: {
 
 /**
  * KIOSK Clock IN — PIN-based, no auth required
- * Uses verifyPin with rate limiting
  */
 export async function kioskClockIn(input: {
   worker_id: string;
@@ -116,7 +114,6 @@ export async function kioskClockIn(input: {
 }) {
   const admin = createAdminClient();
 
-  // Verify location exists
   const { data: location } = await admin
     .from('locations')
     .select('id, name')
@@ -126,11 +123,9 @@ export async function kioskClockIn(input: {
 
   if (!location) return { error: 'Location invalide' };
 
-  // Verify PIN with rate limiting
   const pinResult = await verifyPin(input.worker_id, input.pin);
   if (!pinResult.success) return { error: pinResult.error };
 
-  // Verify shift
   const { data: shift } = await admin
     .from('shifts')
     .select('id, location_id')
@@ -142,7 +137,6 @@ export async function kioskClockIn(input: {
 
   if (!shift) return { error: 'Shift introuvable pour cette location' };
 
-  // Check not already clocked in
   const { data: existing } = await admin
     .from('time_entries')
     .select('id')
@@ -153,7 +147,6 @@ export async function kioskClockIn(input: {
 
   if (existing) return { error: 'Déjà pointé pour ce shift' };
 
-  // Clock in
   const { data, error } = await admin
     .from('time_entries')
     .insert({
@@ -173,7 +166,6 @@ export async function kioskClockIn(input: {
 
 /**
  * KIOSK Clock OUT — PIN-based, no auth required
- * Uses verifyPin with rate limiting
  */
 export async function kioskClockOut(input: {
   worker_id: string;
@@ -183,7 +175,6 @@ export async function kioskClockOut(input: {
 }) {
   const admin = createAdminClient();
 
-  // Verify location
   const { data: location } = await admin
     .from('locations')
     .select('id')
@@ -193,11 +184,9 @@ export async function kioskClockOut(input: {
 
   if (!location) return { error: 'Location invalide' };
 
-  // Verify PIN with rate limiting
   const pinResult = await verifyPin(input.worker_id, input.pin);
   if (!pinResult.success) return { error: pinResult.error };
 
-  // Find active entry
   const { data: entry } = await admin
     .from('time_entries')
     .select('id, clock_in')
@@ -208,7 +197,6 @@ export async function kioskClockOut(input: {
 
   if (!entry) return { error: 'Aucun pointage actif trouvé' };
 
-  // Clock out
   const clockOut = new Date();
   const clockIn = new Date(entry.clock_in);
   const hoursWorked = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60);
@@ -229,6 +217,54 @@ export async function kioskClockOut(input: {
   revalidatePath('/dashboard/flexis/live');
   revalidatePath('/dashboard/flexis/validation');
   return { data, worker_name: `${pinResult.worker.first_name} ${pinResult.worker.last_name}`, hours: hoursWorked };
+}
+
+/**
+ * Créer un pointage manuel (manager) — pour les shifts sans pointage
+ * Utilisé depuis la page de validation quand le worker n'a pas pointé sur place
+ */
+export async function createManualTimeEntry(input: {
+  shift_id: string;
+  worker_id: string;
+  clock_in: string;  // ISO string
+  clock_out: string; // ISO string
+}) {
+  const admin = createAdminClient();
+
+  // Vérifier qu'il n'y a pas déjà un pointage pour ce shift
+  const { data: existing } = await admin
+    .from('time_entries')
+    .select('id')
+    .eq('shift_id', input.shift_id)
+    .maybeSingle();
+
+  if (existing) return { error: 'Un pointage existe déjà pour ce shift' };
+
+  const clockIn = new Date(input.clock_in);
+  const clockOut = new Date(input.clock_out);
+
+  if (clockOut <= clockIn) return { error: 'L\'heure de fin doit être après l\'heure de début' };
+
+  const hoursWorked = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60);
+
+  const { data, error } = await admin
+    .from('time_entries')
+    .insert({
+      shift_id: input.shift_id,
+      worker_id: input.worker_id,
+      clock_in: clockIn.toISOString(),
+      clock_out: clockOut.toISOString(),
+      geo_valid_in: false,
+      geo_valid_out: false,
+      actual_hours: Math.round(hoursWorked * 100) / 100,
+    })
+    .select()
+    .single();
+
+  if (error) return { error: error.message };
+
+  revalidatePath('/dashboard/flexis/validation');
+  return { data };
 }
 
 /**
@@ -289,12 +325,24 @@ export async function correctTimeEntry(
 ) {
   const admin = createAdminClient();
 
-  const { error } = await admin
+  const { data, error } = await admin
     .from('time_entries')
     .update({ clock_in: clockIn, clock_out: clockOut })
-    .eq('id', entryId);
+    .eq('id', entryId)
+    .select('clock_in, clock_out')
+    .single();
 
   if (error) return { error: error.message };
+
+  // Recalcul actual_hours
+  const ci = new Date(data.clock_in);
+  const co = new Date(data.clock_out);
+  const hoursWorked = (co.getTime() - ci.getTime()) / (1000 * 60 * 60);
+
+  await admin
+    .from('time_entries')
+    .update({ actual_hours: Math.round(hoursWorked * 100) / 100 })
+    .eq('id', entryId);
 
   revalidatePath('/dashboard/flexis/validation');
   return { success: true };

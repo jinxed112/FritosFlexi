@@ -2,20 +2,22 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { validateTimeEntry, correctTimeEntry } from '@/lib/actions/clock';
+import { validateTimeEntry, correctTimeEntry, createManualTimeEntry } from '@/lib/actions/clock';
 import { cancelShiftFromValidation } from '@/lib/actions/cancel-shift';
 import { calculateCost, formatEuro } from '@/utils';
 import {
   CheckSquare, Clock, ChevronDown, ChevronUp, AlertTriangle,
   Pencil, XCircle, History, CheckCircle2, ChevronLeft, ChevronRight,
+  ClipboardList, Plus,
 } from 'lucide-react';
 
 interface Props {
   entries: any[];
   validatedEntries: any[];
+  missingShifts: any[];
 }
 
-export default function ValidationTable({ entries, validatedEntries }: Props) {
+export default function ValidationTable({ entries, validatedEntries, missingShifts }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -33,13 +35,11 @@ export default function ValidationTable({ entries, validatedEntries }: Props) {
   for (const e of validatedEntries) {
     const date = e.shifts?.date || e.validated_at?.slice(0, 10) || '';
     if (!date) continue;
-    const key = date.slice(0, 7); // YYYY-MM
+    const key = date.slice(0, 7);
     if (!monthsMap[key]) monthsMap[key] = [];
     monthsMap[key].push(e);
   }
   const monthKeys = Object.keys(monthsMap).sort((a, b) => b.localeCompare(a));
-
-  // Mois sélectionné par défaut = le plus récent
   const activeMonth = selectedMonth || monthKeys[0] || '';
   const historyEntries = monthsMap[activeMonth] || [];
 
@@ -50,7 +50,6 @@ export default function ValidationTable({ entries, validatedEntries }: Props) {
     return date.toLocaleDateString('fr-BE', { month: 'long', year: 'numeric' });
   };
 
-  // Stats du mois sélectionné
   const monthStats = historyEntries.reduce(
     (acc, e) => {
       const info = getBillableInfo(e);
@@ -144,13 +143,41 @@ export default function ValidationTable({ entries, validatedEntries }: Props) {
         </div>
       </div>
 
+      {/* ─── POINTAGES MANQUANTS ─── */}
+      {missingShifts.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="h-px flex-1 bg-red-100" />
+            <span className="text-xs font-semibold text-red-400 uppercase tracking-widest flex items-center gap-1.5">
+              <ClipboardList size={12} />
+              {missingShifts.length} pointage(s) manquant(s)
+            </span>
+            <div className="h-px flex-1 bg-red-100" />
+          </div>
+          <div className="space-y-3">
+            {missingShifts.map((shift: any) => (
+              <MissingShiftCard
+                key={shift.id}
+                shift={shift}
+                isPending={isPending}
+                expandedId={expandedId}
+                onExpand={(id) => setExpandedId(expandedId === id ? null : id)}
+                onCreated={() => router.refresh()}
+                startTransition={startTransition}
+                formatH={formatH}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ─── ENTRÉES À VALIDER ─── */}
-      {entries.length === 0 ? (
+      {entries.length === 0 && missingShifts.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center text-gray-400">
           <div className="text-4xl mb-2">✓</div>
           <p className="font-medium">Toutes les heures sont validées</p>
         </div>
-      ) : (
+      ) : entries.length > 0 ? (
         <div className="space-y-3 mb-8">
           {entries.map((e: any) => (
             <EntryCard
@@ -174,7 +201,7 @@ export default function ValidationTable({ entries, validatedEntries }: Props) {
             />
           ))}
         </div>
-      )}
+      ) : null}
 
       {/* ─── HISTORIQUE PAR MOIS ─── */}
       {showHistory && monthKeys.length > 0 && (
@@ -185,7 +212,6 @@ export default function ValidationTable({ entries, validatedEntries }: Props) {
             <div className="h-px flex-1 bg-gray-100" />
           </div>
 
-          {/* Sélecteur de mois */}
           <div className="flex items-center gap-2 mb-4">
             <button
               onClick={() => {
@@ -226,7 +252,6 @@ export default function ValidationTable({ entries, validatedEntries }: Props) {
             </button>
           </div>
 
-          {/* Stats du mois */}
           <div className="grid grid-cols-3 gap-3 mb-4">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
               <div className="text-xs text-gray-400 font-medium mb-1">Shifts</div>
@@ -242,7 +267,6 @@ export default function ValidationTable({ entries, validatedEntries }: Props) {
             </div>
           </div>
 
-          {/* Entrées du mois */}
           <div className="space-y-3">
             {historyEntries.map((e: any) => (
               <EntryCard
@@ -294,7 +318,168 @@ export default function ValidationTable({ entries, validatedEntries }: Props) {
 }
 
 // ─────────────────────────────────────────────
-// Utilitaire : heures facturables (capped au shift)
+// Carte pour shift sans pointage
+// ─────────────────────────────────────────────
+interface MissingCardProps {
+  shift: any;
+  isPending: boolean;
+  expandedId: string | null;
+  onExpand: (id: string) => void;
+  onCreated: () => void;
+  startTransition: (fn: () => Promise<void>) => void;
+  formatH: (h: number) => string;
+}
+
+function MissingShiftCard({
+  shift, isPending, expandedId, onExpand, onCreated, startTransition, formatH,
+}: MissingCardProps) {
+  const w = shift.flexi_workers;
+  const isExpanded = expandedId === shift.id;
+
+  // Pré-remplir avec les heures du shift
+  const [manualStart, setManualStart] = useState(shift.start_time?.slice(0, 5) || '');
+  const [manualEnd, setManualEnd] = useState(shift.end_time?.slice(0, 5) || '');
+  const [error, setError] = useState('');
+
+  const shiftDate = shift.date;
+  const dateLabel = shiftDate
+    ? new Date(shiftDate).toLocaleDateString('fr-BE', { weekday: 'short', day: 'numeric', month: 'short' })
+    : '—';
+
+  const previewHours = (() => {
+    if (!manualStart || !manualEnd) return 0;
+    const [hs, ms] = manualStart.split(':').map(Number);
+    const [he, me] = manualEnd.split(':').map(Number);
+    return Math.max(0, (he * 60 + me - hs * 60 - ms) / 60);
+  })();
+
+  const handleCreate = () => {
+    setError('');
+    if (!manualStart || !manualEnd) { setError('Renseignez les deux heures'); return; }
+    if (previewHours <= 0) { setError('L\'heure de fin doit être après le début'); return; }
+
+    const clockIn = new Date(`${shiftDate}T${manualStart}:00`).toISOString();
+    const clockOut = new Date(`${shiftDate}T${manualEnd}:00`).toISOString();
+
+    startTransition(async () => {
+      const result = await createManualTimeEntry({
+        shift_id: shift.id,
+        worker_id: w.id,
+        clock_in: clockIn,
+        clock_out: clockOut,
+      });
+      if (result.error) { setError(result.error); return; }
+      onCreated();
+    });
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-red-100 shadow-sm overflow-hidden">
+      {/* Ligne principale */}
+      <div className="px-4 py-3.5 flex items-center gap-3">
+        {/* Avatar rouge */}
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-red-400 to-rose-500 text-white font-bold text-xs flex-shrink-0">
+          {w?.first_name?.[0]}{w?.last_name?.[0]}
+        </div>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-gray-900 text-sm">
+            {w?.first_name} {w?.last_name}
+          </div>
+          <div className="text-xs text-gray-400">
+            {dateLabel} · {shift.locations?.name || '—'}
+          </div>
+        </div>
+
+        {/* Créneau prévu */}
+        <div className="text-right flex-shrink-0">
+          <div className="text-sm font-medium text-gray-500 flex items-center gap-1.5">
+            <Clock size={12} className="text-gray-300" />
+            {shift.start_time?.slice(0, 5) || '—'} → {shift.end_time?.slice(0, 5) || '—'}
+          </div>
+          <div className="text-[10px] px-2 py-0.5 rounded-full bg-red-50 text-red-500 font-medium mt-0.5">
+            Pas de pointage
+          </div>
+        </div>
+
+        {/* Expand */}
+        <button onClick={() => onExpand(shift.id)}
+          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 flex-shrink-0">
+          {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
+
+        {/* Bouton rapide saisir */}
+        {!isExpanded && (
+          <button
+            onClick={() => onExpand(shift.id)}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-violet-50 border border-violet-200 hover:bg-violet-100 text-violet-700 text-xs font-medium transition-colors flex-shrink-0"
+          >
+            <Plus size={12} /> Saisir
+          </button>
+        )}
+      </div>
+
+      {/* Formulaire de saisie manuelle */}
+      {isExpanded && (
+        <div className="px-4 pb-4 border-t border-gray-50 pt-3">
+          <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl mb-4 flex items-start gap-2">
+            <AlertTriangle size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-700">
+              Ce worker n'a pas pointé via le kiosk. Saisissez les heures réelles pour créer le pointage manuellement.
+            </p>
+          </div>
+
+          <p className="text-[10px] text-gray-400 uppercase tracking-wide font-medium mb-3">Heures réelles travaillées</p>
+
+          <div className="flex items-center gap-3 mb-3">
+            <div className="flex-1">
+              <label className="block text-[10px] text-violet-600 font-medium mb-1">Arrivée</label>
+              <input
+                type="time"
+                value={manualStart}
+                onChange={(e) => setManualStart(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-violet-200 text-sm focus:border-violet-400 focus:outline-none bg-white"
+              />
+            </div>
+            <span className="text-gray-300 mt-5">→</span>
+            <div className="flex-1">
+              <label className="block text-[10px] text-violet-600 font-medium mb-1">Départ</label>
+              <input
+                type="time"
+                value={manualEnd}
+                onChange={(e) => setManualEnd(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-violet-200 text-sm focus:border-violet-400 focus:outline-none bg-white"
+              />
+            </div>
+          </div>
+
+          {previewHours > 0 && (
+            <div className="text-xs text-violet-600 mb-3 font-medium">
+              → {formatH(previewHours)} · {formatEuro(calculateCost(previewHours, w?.hourly_rate || 12.53, false, w?.status || 'other').total_cost)}
+            </div>
+          )}
+
+          {error && (
+            <p className="text-xs text-red-500 mb-3">{error}</p>
+          )}
+
+          <button
+            onClick={handleCreate}
+            disabled={isPending || previewHours <= 0}
+            className="w-full flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 text-white rounded-xl py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            <Plus size={14} />
+            {isPending ? 'Enregistrement...' : 'Créer le pointage'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Utilitaire : heures facturables
 // ─────────────────────────────────────────────
 function getBillableInfo(entry: any) {
   const s = entry.shifts;
@@ -307,7 +492,6 @@ function getBillableInfo(entry: any) {
   const shiftStart = new Date(`${shiftDate}T${String(sh).padStart(2, '0')}:${String(sm).padStart(2, '0')}:00`);
   const shiftEnd = new Date(`${shiftDate}T${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}:00`);
 
-  // Heures reelles = heures facturables (le manager ajuste via Ajuster les heures)
   const actualHours = (clockOut.getTime() - clockIn.getTime()) / 3600000;
   const billableHours = actualHours;
   const earlyMinutes = clockIn < shiftStart ? Math.round((shiftStart.getTime() - clockIn.getTime()) / 60000) : 0;
@@ -326,7 +510,7 @@ function getBillableInfo(entry: any) {
 }
 
 // ─────────────────────────────────────────────
-// Composant carte d'entrée (réutilisé pending + historique)
+// Carte entrée existante (à valider ou historique)
 // ─────────────────────────────────────────────
 interface CardProps {
   entry: any;
@@ -366,7 +550,6 @@ function EntryCard({
     }`}>
       {/* Ligne principale */}
       <div className="px-4 py-3.5 flex items-center gap-3">
-        {/* Avatar */}
         <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-xs flex-shrink-0 ${
           isValidated
             ? 'bg-gradient-to-br from-emerald-400 to-teal-500'
@@ -375,7 +558,6 @@ function EntryCard({
           {w?.first_name?.[0]}{w?.last_name?.[0]}
         </div>
 
-        {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="font-semibold text-gray-900 text-sm flex items-center gap-1.5">
             {w?.first_name} {w?.last_name}
@@ -387,7 +569,6 @@ function EntryCard({
           </div>
         </div>
 
-        {/* Horaires */}
         <div className="text-right flex-shrink-0">
           <div className="text-sm font-medium text-gray-800 flex items-center gap-1.5">
             <Clock size={12} className="text-gray-300" />
@@ -398,19 +579,16 @@ function EntryCard({
           </div>
         </div>
 
-        {/* Heures + coût */}
         <div className="text-right flex-shrink-0 w-20">
           <div className="text-sm font-bold text-gray-900">{formatH(info.billableHours)}</div>
           <div className="text-xs text-gray-400">{formatEuro(cost.total_cost)}</div>
         </div>
 
-        {/* Expand */}
         <button onClick={() => onExpand(entry.id)}
           className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 flex-shrink-0">
           {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </button>
 
-        {/* Actions selon statut */}
         {isValidated ? (
           <button onClick={() => onEdit(entry)}
             className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-orange-300 hover:text-orange-600 text-gray-500 text-xs font-medium transition-colors flex-shrink-0">
@@ -431,7 +609,6 @@ function EntryCard({
         )}
       </div>
 
-      {/* Badge hors-shift (résumé, non expanded) */}
       {hasExtra && !isExpanded && !isValidated && (
         <div className="px-4 pb-3 -mt-1 flex items-center gap-2">
           {info.earlyMinutes > 0 && (
@@ -447,7 +624,6 @@ function EntryCard({
         </div>
       )}
 
-      {/* Détail expandé */}
       {isExpanded && (
         <div className="px-4 pb-4 border-t border-gray-50 pt-3">
           <div className="grid grid-cols-2 gap-4 mb-4">
@@ -495,7 +671,6 @@ function EntryCard({
             </div>
           </div>
 
-          {/* Form de modification */}
           {isEditing ? (
             <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl">
               <p className="text-xs text-blue-700 font-medium mb-3">
