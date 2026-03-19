@@ -147,13 +147,13 @@ export async function sendDimonaIn(
         startDate: date,
         endDate: date,
         plannedHoursNumber: calcHours(startTime, endTime),
-        features: { workerType },  // STU: pas de CP (incompatible avec 302)
+        features: { workerType, jointCommissionNumber: 'XXX' },  // STU: CP 'XXX' (obligatoire ONSS)
       } : {
         startDate: date,
         startHour: formatHour(startTime),
         endDate: date,
         endHour: formatHour(endTime),
-        features: { workerType, jointCommissionNumber: '302' },  // FLX: CP 302
+        features: { workerType, jointCommissionNumber: 'XXX' },  // FLX: CP 'XXX' (obligatoire ONSS)
       },
     };
     const declarationId = await postDeclaration(payload);
