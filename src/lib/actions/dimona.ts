@@ -279,3 +279,61 @@ export async function apiBatchDeclareDimona() {
   revalidatePath('/dashboard/flexis/dimona');
   return { success: true, count: ok, failed, errors };
 }
+
+// ============================================================
+// SYNC ONSS : Vérifier les périodes OK contre l'API ONSS
+// ============================================================
+
+export async function syncDimonaWithONSS(): Promise<{
+  checked: number;
+  updated: number;
+  errors: string[];
+}> {
+  const supabase = createClient();
+
+  const today = new Date().toISOString().split('T')[0];
+
+  // Récupérer les OK avec periodId pour shifts futurs
+  const { data: okDeclarations } = await supabase
+    .from('dimona_declarations')
+    .select('id, dimona_period_id, onss_response, shifts!inner(date)')
+    .eq('status', 'ok')
+    .eq('declaration_type', 'IN')
+    .not('dimona_period_id', 'is', null)
+    .gte('shifts.date', today);
+
+  if (!okDeclarations?.length) {
+    return { checked: 0, updated: 0, errors: [] };
+  }
+
+  const { checkPeriodStatus } = await import('@/lib/dimona/service');
+
+  let updated = 0;
+  const errors: string[] = [];
+
+  for (const decl of okDeclarations) {
+    try {
+      const periodId = parseInt(decl.dimona_period_id!);
+      const status = await checkPeriodStatus(periodId);
+
+      if (status === 'cancelled' || status === 'not_found') {
+        await supabase
+          .from('dimona_declarations')
+          .update({
+            status: 'cancelled',
+            notes: `Annulée côté ONSS (sync ${new Date().toLocaleDateString('fr-BE')})`,
+            responded_at: new Date().toISOString(),
+          })
+          .eq('id', decl.id);
+        updated++;
+      }
+    } catch (e: any) {
+      errors.push(`${decl.id}: ${e.message}`);
+    }
+
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  revalidatePath('/dashboard/flexis/dimona');
+  return { checked: okDeclarations.length, updated, errors };
+}

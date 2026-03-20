@@ -1,8 +1,8 @@
 'use client';
 
 import { useTransition, useState } from 'react';
-import { updateDimonaStatus, getDimonaForCopy, apiDeclareDimona, apiCancelDimona, apiBatchDeclareDimona } from '@/lib/actions/dimona';
-import { FileText, Copy, ExternalLink, Send, XCircle, UserX, Zap, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { updateDimonaStatus, getDimonaForCopy, apiDeclareDimona, apiCancelDimona, apiBatchDeclareDimona, syncDimonaWithONSS } from '@/lib/actions/dimona';
+import { FileText, Copy, ExternalLink, Send, XCircle, UserX, Zap, Loader2, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 
 const statusStyles: Record<string, { bg: string; text: string; icon: string; label: string }> = {
   ok: { bg: 'bg-emerald-100', text: 'text-emerald-800', icon: '✓', label: 'OK' },
@@ -77,6 +77,18 @@ export default function DimonaTable({ declarations }: Props) {
     setLoadingId(null);
     if (result.count !== undefined) {
       showMsg(result.failed ? 'error' : 'success', `${result.count} déclarée(s)${result.failed ? `, ${result.failed} échouée(s)` : ''}`);
+    }
+  };
+
+  const handleSyncONSS = async () => {
+    if (!confirm('Vérifier les déclarations OK contre l\'API ONSS ? (quelques secondes)')) return;
+    setLoadingId('sync');
+    const result = await syncDimonaWithONSS();
+    setLoadingId(null);
+    if (result.updated > 0) {
+      showMsg('success', `${result.checked} vérifiée(s) · ${result.updated} mise(s) à jour (annulées côté ONSS)`);
+    } else {
+      showMsg('success', `${result.checked} vérifiée(s) · tout est synchronisé`);
     }
   };
 
@@ -169,13 +181,21 @@ export default function DimonaTable({ declarations }: Props) {
           </h1>
           <p className="text-sm text-gray-400 mt-0.5">CP 302 · FLX/STU · ONSS · API v2</p>
         </div>
-        {counts.ready > 0 && (
-          <button onClick={handleBatchDeclare} disabled={loadingId === 'batch'}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-50 flex items-center gap-2">
-            {loadingId === 'batch' ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
-            Tout déclarer via API ({counts.ready})
+        <div className="flex gap-2">
+          <button onClick={handleSyncONSS} disabled={!!loadingId}
+            className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-50 flex items-center gap-2"
+            title="Vérifier les périodes OK contre l'API ONSS">
+            {loadingId === 'sync' ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+            Sync ONSS
           </button>
-        )}
+          {counts.ready > 0 && (
+            <button onClick={handleBatchDeclare} disabled={!!loadingId}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-50 flex items-center gap-2">
+              {loadingId === 'batch' ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
+              Tout déclarer via API ({counts.ready})
+            </button>
+          )}
+        </div>
       </div>
 
       {actionMsg && (

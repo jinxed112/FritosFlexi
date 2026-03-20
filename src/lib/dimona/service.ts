@@ -224,3 +224,34 @@ function calcHours(startTime: string, endTime: string): number {
   return Math.round(((eh * 60 + em) - (sh * 60 + sm)) / 60);
 }
 function sleep(ms: number): Promise<void> { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+// ============================================================
+// CHECK PERIOD STATUS : Vérifie si une période existe encore côté ONSS
+// ============================================================
+export async function checkPeriodStatus(
+  periodId: number
+): Promise<'active' | 'cancelled' | 'not_found'> {
+  try {
+    const token = await getToken();
+    const response = await fetch(
+      `${DIMONA_CONFIG.baseUrl}/periods/${periodId}`,
+      { headers: { 'Authorization': `Bearer ${token}` } }
+    );
+
+    if (response.status === 404) return 'not_found';
+
+    if (response.status === 200) {
+      const data = await response.json();
+      // La période est annulée si elle a un cancel ou si le statut l'indique
+      const isCancelled =
+        data?.status === 'CANCELLED' ||
+        data?.cancelled === true ||
+        data?.dimonaCancel != null;
+      return isCancelled ? 'cancelled' : 'active';
+    }
+
+    return 'active'; // En cas de doute, on considère active
+  } catch (e) {
+    throw new Error(`checkPeriodStatus failed: ${(e as any).message}`);
+  }
+}
