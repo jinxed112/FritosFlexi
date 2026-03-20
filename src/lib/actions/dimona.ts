@@ -2,7 +2,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import type { DimonaStatus } from '@/types';
-import { sendDimonaIn, sendDimonaCancel, sendDimonaUpdate } from '@/lib/dimona/service';
+import { sendDimonaIn, sendDimonaCancel } from '@/lib/dimona/service';
 
 /**
  * Update Dimona status after manual ONSS declaration (manager action)
@@ -40,28 +40,26 @@ export async function getDimonaForCopy(dimonaId: string) {
     .from('dimona_declarations')
     .select(`
       *,
-      flexi_workers(first_name, last_name, niss, date_of_birth),
+      flexi_workers(first_name, last_name, niss, date_of_birth, status),
       locations(name, address)
     `)
     .eq('id', dimonaId)
     .single();
   if (error) return { error: error.message };
   const d = data as any;
+  // ✅ Fix: worker_type correct selon statut réel du worker
+  const workerType = d.flexi_workers?.status === 'student' ? 'STU' : 'FLX';
   return {
     data: {
-      // Employer
       employer_noss: process.env.NEXT_PUBLIC_EMPLOYER_NOSS || 'À configurer',
-      // Worker
       worker_niss: d.worker_niss,
       worker_name: `${d.flexi_workers.last_name} ${d.flexi_workers.first_name}`,
       worker_dob: d.flexi_workers.date_of_birth,
-      // Declaration
-      type: 'FLX',
-      joint_committee: '302',
+      worker_type: workerType,
+      joint_committee: workerType === 'FLX' ? 'XXX' : '',
       planned_start: d.planned_start,
       planned_end: d.planned_end,
       planned_hours: d.planned_hours,
-      // Location
       location: d.locations.name,
     },
   };
@@ -77,12 +75,12 @@ export async function getDimonaForCopy(dimonaId: string) {
 export async function apiDeclareDimona(dimonaId: string) {
   const supabase = createClient();
 
-  // Fetch the dimona record with related data
+  // ✅ Fix: inclure le statut du worker pour déterminer FLX/STU
   const { data: dimona, error } = await supabase
     .from('dimona_declarations')
     .select(`
       *,
-      flexi_workers(niss, first_name, last_name),
+      flexi_workers(niss, first_name, last_name, status),
       shifts(date, start_time, end_time)
     `)
     .eq('id', dimonaId)
@@ -101,21 +99,30 @@ export async function apiDeclareDimona(dimonaId: string) {
     return { error: 'Shift non trouvé' };
   }
 
-  // Update status to "sent"
+  // ✅ Fix: worker_type basé sur le statut réel du worker, pas hardcodé FLX
+  const workerType: 'FLX' | 'STU' = dimona.flexi_workers.status === 'student' ? 'STU' : 'FLX';
+
+  // ✅ Fix: mettre à jour worker_type dans le record avant d'envoyer
   await supabase
     .from('dimona_declarations')
-    .update({ status: 'sent', sent_at: new Date().toISOString(), sent_method: 'api' })
+    .update({
+      status: 'sent',
+      sent_at: new Date().toISOString(),
+      sent_method: 'api',
+      worker_type: workerType,
+      joint_committee: workerType === 'FLX' ? 'XXX' : '',
+    })
     .eq('id', dimonaId);
 
-  // Call ONSS API
+  // ✅ Fix: passer workerType à sendDimonaIn
   const result = await sendDimonaIn(
     dimona.flexi_workers.niss,
     shift.date,
     shift.start_time,
     shift.end_time,
+    workerType,
   );
 
-  // Update with result
   const updateData: Record<string, unknown> = {
     onss_response: result,
     responded_at: new Date().toISOString(),
@@ -124,15 +131,14 @@ export async function apiDeclareDimona(dimonaId: string) {
   if (result.success) {
     updateData.status = 'ok';
     updateData.dimona_period_id = result.periodId?.toString();
-    updateData.onss_declaration_id = result.declarationId;
     if (result.anomalies?.length) {
-      updateData.notes = `API OK - Warnings: ${result.anomalies.map(a => a.descriptionFr).join('; ')}`;
+      updateData.notes = `API OK - Warnings: ${result.anomalies.map((a: any) => a.descriptionFr).join('; ')}`;
     } else {
       updateData.notes = `API OK - Déclaration ${result.declarationId}, Période ${result.periodId}`;
     }
   } else {
     updateData.status = result.result === 'B' ? 'nok' : 'error';
-    updateData.notes = `API ${result.result || 'ERROR'}: ${result.error || result.anomalies?.map(a => a.descriptionFr).join('; ')}`;
+    updateData.notes = `API ${result.result || 'ERROR'}: ${result.error || result.anomalies?.map((a: any) => a.descriptionFr).join('; ')}`;
   }
 
   await supabase
@@ -150,7 +156,6 @@ export async function apiDeclareDimona(dimonaId: string) {
 
 /**
  * Cancel a Dimona via ONSS API
- * Uses the periodId from a previously accepted Dimona-In
  */
 export async function apiCancelDimona(
   dimonaId: string,
@@ -158,10 +163,14 @@ export async function apiCancelDimona(
 ) {
   const supabase = createClient();
 
-  // Fetch the dimona record
+  // ✅ Fix: inclure le statut du worker pour worker_type correct
   const { data: dimona, error } = await supabase
     .from('dimona_declarations')
-    .select('*, shifts(id, date, start_time, end_time)')
+    .select(`
+      *,
+      flexi_workers(status),
+      shifts(id, date, start_time, end_time)
+    `)
     .eq('id', dimonaId)
     .single();
 
@@ -175,7 +184,9 @@ export async function apiCancelDimona(
 
   const periodId = parseInt(dimona.dimona_period_id);
 
-  // Create a CANCEL record
+  // ✅ Fix: worker_type correct
+  const workerType: 'FLX' | 'STU' = dimona.flexi_workers?.status === 'student' ? 'STU' : 'FLX';
+
   const { data: cancelRecord } = await supabase
     .from('dimona_declarations')
     .insert({
@@ -183,8 +194,8 @@ export async function apiCancelDimona(
       worker_id: dimona.worker_id,
       location_id: dimona.location_id,
       declaration_type: 'CANCEL',
-      worker_type: 'FLX',
-      joint_committee: '302',
+      worker_type: workerType,                           // ✅ plus hardcodé FLX
+      joint_committee: workerType === 'FLX' ? 'XXX' : '', // ✅ XXX pour FLX, vide pour STU
       employer_noss: dimona.employer_noss,
       worker_niss: dimona.worker_niss,
       planned_start: dimona.planned_start,
@@ -197,33 +208,28 @@ export async function apiCancelDimona(
     .select()
     .single();
 
-  // Call ONSS API
   const result = await sendDimonaCancel(periodId);
 
-  // Update cancel record
   if (cancelRecord) {
     await supabase
       .from('dimona_declarations')
       .update({
         status: result.success ? 'ok' : (result.result === 'B' ? 'nok' : 'error'),
         onss_response: result,
-        onss_declaration_id: result.declarationId,
         responded_at: new Date().toISOString(),
         notes: result.success
           ? `Annulée (${reason}) - Déclaration ${result.declarationId}`
-          : `Erreur annulation: ${result.error || result.anomalies?.map(a => a.descriptionFr).join('; ')}`,
+          : `Erreur annulation: ${result.error || result.anomalies?.map((a: any) => a.descriptionFr).join('; ')}`,
       })
       .eq('id', cancelRecord.id);
   }
 
-  // Update original Dimona-In as cancelled
   if (result.success) {
     await supabase
       .from('dimona_declarations')
       .update({ status: 'cancelled', notes: `Annulée: ${reason}` })
       .eq('id', dimonaId);
 
-    // Update shift status
     await supabase
       .from('shifts')
       .update({ status: 'cancelled' })
@@ -267,7 +273,6 @@ export async function apiBatchDeclareDimona() {
       failed++;
       errors.push(result.error || 'Unknown error');
     }
-    // Small delay to not overload ONSS
     await new Promise(r => setTimeout(r, 500));
   }
 
