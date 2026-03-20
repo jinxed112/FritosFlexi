@@ -1,8 +1,4 @@
-// ============================================================
-// Dimona Actions - Server-side logic for FritOS Flexi
-// Manages the full Dimona lifecycle integrated with Supabase
-// ============================================================
-
+// src/lib/dimona/actions.ts
 'use server';
 
 import { createClient } from '@supabase/supabase-js';
@@ -15,12 +11,9 @@ const supabase = createClient(
 );
 
 // ============================================================
-// 1. DIMONA-IN : Déclarer un shift confirmé
-//    Appelé la veille ou le jour même quand le shift est maintenu
+// 1. DIMONA-IN
 // ============================================================
-
 export async function declareDimonaIn(shiftId: string): Promise<DimonaResult> {
-  // Fetch shift + worker data
   const { data: shift, error: shiftErr } = await supabase
     .from('shifts')
     .select(`
@@ -31,59 +24,56 @@ export async function declareDimonaIn(shiftId: string): Promise<DimonaResult> {
     .eq('id', shiftId)
     .single();
 
-  if (shiftErr || !shift) {
-    return { success: false, error: `Shift not found: ${shiftErr?.message}` };
-  }
+  if (shiftErr || !shift) return { success: false, error: `Shift not found: ${shiftErr?.message}` };
+  if (!shift.flexi_workers?.niss) return { success: false, error: `Worker ${shift.flexi_workers?.first_name} ${shift.flexi_workers?.last_name} has no NISS` };
+  if (shift.status !== 'accepted') return { success: false, error: `Shift status is "${shift.status}", expected "accepted"` };
 
-  if (!shift.flexi_workers?.niss) {
-    return { success: false, error: `Worker ${shift.flexi_workers?.first_name} ${shift.flexi_workers?.last_name} has no NISS` };
-  }
-
-  if (shift.status !== 'accepted') {
-    return { success: false, error: `Shift status is "${shift.status}", expected "accepted"` };
-  }
-
-  // Check if Dimona already exists for this shift
+  // ✅ Fix: vérifier TOUS les statuts existants, pas seulement sent/ok
   const { data: existing } = await supabase
     .from('dimona_declarations')
     .select('id, status, dimona_period_id')
     .eq('shift_id', shiftId)
     .eq('declaration_type', 'IN')
-    .in('status', ['sent', 'ok'])
+    .order('created_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
 
-  if (existing) {
+  // Si déjà OK ou envoyée → ne pas réenvoyer
+  if (existing && ['ok', 'sent'].includes(existing.status)) {
     return { success: false, error: `Dimona-In already exists for this shift (status: ${existing.status})` };
   }
 
-  // Determine Dimona worker type based on worker status
-  const workerType = shift.flexi_workers.status === 'student' ? 'STU' : 'FLX';
+  const workerType: 'FLX' | 'STU' = shift.flexi_workers.status === 'student' ? 'STU' : 'FLX';
 
-  // Create dimona record as "pending"
-  const { data: dimonaRecord, error: insertErr } = await supabase
-    .from('dimona_declarations')
-    .insert({
-      shift_id: shiftId,
-      worker_id: shift.worker_id,
-      location_id: shift.location_id,
-      declaration_type: 'IN',
-      worker_type: workerType,
-      joint_committee: '302',
-      employer_noss: process.env.DIMONA_ENTERPRISE_NUMBER || '1009237290',
-      worker_niss: shift.flexi_workers.niss.replace(/[\.\-\s]/g, ''),
-      planned_start: `${shift.date}T${shift.start_time}`,
-      planned_end: `${shift.date}T${shift.end_time}`,
-      status: 'pending',
-      sent_method: 'api',
-    })
-    .select()
-    .single();
-
-  if (insertErr || !dimonaRecord) {
-    return { success: false, error: `Failed to create dimona record: ${insertErr?.message}` };
+  // Réutiliser le record existant (nok/error) ou en créer un nouveau
+  let dimonaId: string;
+  if (existing && ['nok', 'error', 'pending'].includes(existing.status)) {
+    dimonaId = existing.id;
+    await supabase.from('dimona_declarations').update({ status: 'pending', sent_at: null, notes: 'Retry' }).eq('id', dimonaId);
+  } else {
+    const { data: newRecord, error: insertErr } = await supabase
+      .from('dimona_declarations')
+      .insert({
+        shift_id: shiftId,
+        worker_id: shift.worker_id,
+        location_id: shift.location_id,
+        declaration_type: 'IN',
+        worker_type: workerType,
+        joint_committee: workerType === 'FLX' ? 'XXX' : '',
+        employer_noss: process.env.DIMONA_ENTERPRISE_NUMBER || '1009237290',
+        worker_niss: shift.flexi_workers.niss.replace(/[\.\-\s]/g, ''),
+        planned_start: `${shift.date}T${shift.start_time}`,
+        planned_end: `${shift.date}T${shift.end_time}`,
+        status: 'pending',
+        sent_method: 'api',
+      })
+      .select()
+      .single();
+    if (insertErr || !newRecord) return { success: false, error: `Failed to create dimona record: ${insertErr?.message}` };
+    dimonaId = newRecord.id;
   }
 
-  // Send to ONSS API
+  // Send to ONSS
   const result = await sendDimonaIn(
     shift.flexi_workers.niss,
     shift.date,
@@ -92,71 +82,57 @@ export async function declareDimonaIn(shiftId: string): Promise<DimonaResult> {
     workerType,
   );
 
-  // Update dimona record with result
   const updateData: Record<string, any> = {
     sent_at: new Date().toISOString(),
     onss_response: result,
+    worker_type: workerType,
   };
 
   if (result.success) {
-    updateData.status = result.result === 'A' ? 'ok' : 'ok'; // 'W' is also OK
+    updateData.status = 'ok';
     updateData.dimona_period_id = result.periodId?.toString();
     updateData.responded_at = new Date().toISOString();
-
     if (result.anomalies?.length) {
-      updateData.notes = `Warnings: ${result.anomalies.map(a => a.descriptionFr).join('; ')}`;
+      updateData.notes = `Warnings: ${result.anomalies.map((a: any) => a.descriptionFr).join('; ')}`;
     }
   } else {
     updateData.status = result.result === 'B' ? 'nok' : 'error';
-    updateData.notes = result.error || result.anomalies?.map(a => a.descriptionFr).join('; ');
+    updateData.notes = result.error || result.anomalies?.map((a: any) => a.descriptionFr).join('; ');
   }
 
-  await supabase
-    .from('dimona_declarations')
-    .update(updateData)
-    .eq('id', dimonaRecord.id);
-
+  await supabase.from('dimona_declarations').update(updateData).eq('id', dimonaId);
   return result;
 }
 
-
 // ============================================================
-// 2. DIMONA-CANCEL : Annuler une Dimona
-//    Cas 1: Le worker annule le shift avant la prestation
-//    Cas 2: Le worker ne se présente pas (no-show)
+// 2. DIMONA-CANCEL
 // ============================================================
-
 export async function cancelDimona(
   shiftId: string,
   reason: 'worker_cancelled' | 'no_show' | 'manager_cancelled'
 ): Promise<DimonaResult> {
-  // Find the accepted Dimona-In for this shift
   const { data: dimonaIn, error } = await supabase
     .from('dimona_declarations')
-    .select('id, dimona_period_id, status')
+    .select('id, dimona_period_id, status, worker_type')
     .eq('shift_id', shiftId)
     .eq('declaration_type', 'IN')
-    .in('status', ['ok'])
+    .eq('status', 'ok')
     .maybeSingle();
 
-  if (error || !dimonaIn) {
-    return { success: false, error: 'No accepted Dimona-In found for this shift' };
-  }
-
-  if (!dimonaIn.dimona_period_id) {
-    return { success: false, error: 'Dimona-In has no periodId - cannot cancel' };
-  }
+  if (error || !dimonaIn) return { success: false, error: 'No accepted Dimona-In found for this shift' };
+  if (!dimonaIn.dimona_period_id) return { success: false, error: 'Dimona-In has no periodId - cannot cancel' };
 
   const periodId = parseInt(dimonaIn.dimona_period_id);
 
-  // Fetch shift info for the record
   const { data: shift } = await supabase
     .from('shifts')
-    .select('worker_id, location_id, date, start_time, end_time')
+    .select('worker_id, location_id, date, start_time, end_time, flexi_workers!inner(status)')
     .eq('id', shiftId)
     .single();
 
-  // Create cancel record
+  // ✅ Fix: utiliser le worker_type du shift, pas hardcoder FLX
+  const workerType = (shift?.flexi_workers as any)?.status === 'student' ? 'STU' : 'FLX';
+
   const { data: cancelRecord } = await supabase
     .from('dimona_declarations')
     .insert({
@@ -164,10 +140,10 @@ export async function cancelDimona(
       worker_id: shift?.worker_id,
       location_id: shift?.location_id,
       declaration_type: 'CANCEL',
-      worker_type: 'FLX',
-      joint_committee: '302',
+      worker_type: workerType,
+      joint_committee: workerType === 'FLX' ? 'XXX' : '',
       employer_noss: process.env.DIMONA_ENTERPRISE_NUMBER || '1009237290',
-      worker_niss: '', // Not needed for cancel
+      worker_niss: '',
       planned_start: shift ? `${shift.date}T${shift.start_time}` : new Date().toISOString(),
       planned_end: shift ? `${shift.date}T${shift.end_time}` : new Date().toISOString(),
       status: 'pending',
@@ -177,10 +153,8 @@ export async function cancelDimona(
     .select()
     .single();
 
-  // Send cancel to ONSS
   const result = await sendDimonaCancel(periodId);
 
-  // Update cancel record
   const updateData: Record<string, any> = {
     sent_at: new Date().toISOString(),
     onss_response: result,
@@ -189,47 +163,25 @@ export async function cancelDimona(
 
   if (result.success) {
     updateData.status = 'ok';
-    // Also update the original Dimona-In status
-    await supabase
-      .from('dimona_declarations')
-      .update({ status: 'cancelled', notes: `Cancelled: ${reason}` })
-      .eq('id', dimonaIn.id);
+    await supabase.from('dimona_declarations').update({ status: 'cancelled', notes: `Cancelled: ${reason}` }).eq('id', dimonaIn.id);
+    await supabase.from('shifts').update({ status: 'cancelled', notes: `Dimona cancelled: ${reason}` }).eq('id', shiftId);
   } else {
     updateData.status = result.result === 'B' ? 'nok' : 'error';
-    updateData.notes = `Cancel failed: ${result.error || result.anomalies?.map(a => a.descriptionFr).join('; ')}`;
+    updateData.notes = `Cancel failed: ${result.error || result.anomalies?.map((a: any) => a.descriptionFr).join('; ')}`;
   }
 
   if (cancelRecord) {
-    await supabase
-      .from('dimona_declarations')
-      .update(updateData)
-      .eq('id', cancelRecord.id);
-  }
-
-  // Update shift status
-  if (result.success) {
-    await supabase
-      .from('shifts')
-      .update({ status: 'cancelled', notes: `Dimona cancelled: ${reason}` })
-      .eq('id', shiftId);
+    await supabase.from('dimona_declarations').update(updateData).eq('id', cancelRecord.id);
   }
 
   return result;
 }
 
-
 // ============================================================
-// 3. DIMONA-UPDATE : Modifier les horaires
-//    Ex: le worker reste plus longtemps ou part plus tôt
+// 3. DIMONA-UPDATE
 // ============================================================
-
-export async function updateDimona(
-  shiftId: string,
-  newStartTime: string,
-  newEndTime: string,
-): Promise<DimonaResult> {
-  // Find the accepted Dimona-In for this shift
-  const { data: dimonaIn, error } = await supabase
+export async function updateDimona(shiftId: string, newStartTime: string, newEndTime: string): Promise<DimonaResult> {
+  const { data: dimonaIn } = await supabase
     .from('dimona_declarations')
     .select('id, dimona_period_id')
     .eq('shift_id', shiftId)
@@ -237,24 +189,21 @@ export async function updateDimona(
     .eq('status', 'ok')
     .maybeSingle();
 
-  if (error || !dimonaIn?.dimona_period_id) {
-    return { success: false, error: 'No accepted Dimona-In with periodId found for this shift' };
-  }
+  if (!dimonaIn?.dimona_period_id) return { success: false, error: 'No accepted Dimona-In with periodId found for this shift' };
 
   const periodId = parseInt(dimonaIn.dimona_period_id);
 
-  // Fetch shift date
   const { data: shift } = await supabase
     .from('shifts')
-    .select('date, worker_id, location_id')
+    .select('date, worker_id, location_id, flexi_workers!inner(status)')
     .eq('id', shiftId)
     .single();
 
-  if (!shift) {
-    return { success: false, error: 'Shift not found' };
-  }
+  if (!shift) return { success: false, error: 'Shift not found' };
 
-  // Create update record
+  // ✅ Fix: worker_type correct
+  const workerType = (shift.flexi_workers as any)?.status === 'student' ? 'STU' : 'FLX';
+
   const { data: updateRecord } = await supabase
     .from('dimona_declarations')
     .insert({
@@ -262,8 +211,8 @@ export async function updateDimona(
       worker_id: shift.worker_id,
       location_id: shift.location_id,
       declaration_type: 'UPDATE',
-      worker_type: 'FLX',
-      joint_committee: '302',
+      worker_type: workerType,
+      joint_committee: workerType === 'FLX' ? 'XXX' : '',
       employer_noss: process.env.DIMONA_ENTERPRISE_NUMBER || '1009237290',
       worker_niss: '',
       planned_start: `${shift.date}T${newStartTime}`,
@@ -275,55 +224,39 @@ export async function updateDimona(
     .select()
     .single();
 
-  // Send update to ONSS
   const result = await sendDimonaUpdate(periodId, shift.date, newStartTime, newEndTime);
 
-  // Update record
   if (updateRecord) {
-    await supabase
-      .from('dimona_declarations')
-      .update({
-        sent_at: new Date().toISOString(),
-        onss_response: result,
-        responded_at: new Date().toISOString(),
-        status: result.success ? 'ok' : (result.result === 'B' ? 'nok' : 'error'),
-      })
-      .eq('id', updateRecord.id);
+    await supabase.from('dimona_declarations').update({
+      sent_at: new Date().toISOString(),
+      onss_response: result,
+      responded_at: new Date().toISOString(),
+      status: result.success ? 'ok' : (result.result === 'B' ? 'nok' : 'error'),
+    }).eq('id', updateRecord.id);
   }
 
   return result;
 }
 
-
 // ============================================================
-// 4. WORKFLOW AUTOMATIQUE : Envoyer les Dimona pour demain
-//    À appeler via cron (Vercel Cron) chaque soir à 20h
+// 4. CRON : Dimona pour demain
 // ============================================================
-
 export async function sendDimonaForTomorrow(): Promise<{
-  sent: number;
-  failed: number;
+  sent: number; failed: number;
   results: Array<{ shiftId: string; workerName: string; result: DimonaResult }>;
 }> {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-  // Find accepted shifts for tomorrow without a Dimona-In OK
   const { data: shifts } = await supabase
     .from('shifts')
-    .select(`
-      id, date, start_time, end_time, worker_id,
-      flexi_workers!inner(first_name, last_name, niss)
-    `)
+    .select(`id, date, start_time, end_time, worker_id, flexi_workers!inner(first_name, last_name, niss)`)
     .eq('date', tomorrowStr)
     .eq('status', 'accepted');
 
-  if (!shifts?.length) {
-    return { sent: 0, failed: 0, results: [] };
-  }
+  if (!shifts?.length) return { sent: 0, failed: 0, results: [] };
 
-  // Filter out shifts that already have an accepted Dimona
   const shiftIds = shifts.map(s => s.id);
   const { data: existingDimonas } = await supabase
     .from('dimona_declarations')
@@ -336,56 +269,32 @@ export async function sendDimonaForTomorrow(): Promise<{
   const toDeclare = shifts.filter(s => !alreadyDeclared.has(s.id));
 
   const results: Array<{ shiftId: string; workerName: string; result: DimonaResult }> = [];
-  let sent = 0;
-  let failed = 0;
+  let sent = 0, failed = 0;
 
   for (const shift of toDeclare) {
-    const workerName = `${shift.flexi_workers?.first_name} ${shift.flexi_workers?.last_name}`;
+    const workerName = `${(shift.flexi_workers as any)?.first_name} ${(shift.flexi_workers as any)?.last_name}`;
     const result = await declareDimonaIn(shift.id);
-
     results.push({ shiftId: shift.id, workerName, result });
-
-    if (result.success) {
-      sent++;
-    } else {
-      failed++;
-    }
-
-    // Small delay between declarations to not hammer the API
+    result.success ? sent++ : failed++;
     await new Promise(r => setTimeout(r, 500));
   }
 
   return { sent, failed, results };
 }
 
-
 // ============================================================
-// 5. HANDLE NO-SHOW : Détection et annulation automatique
-//    À appeler quand un worker ne pointe pas dans les 30 min
+// 5. NO-SHOW
 // ============================================================
-
 export async function handleNoShow(shiftId: string): Promise<DimonaResult> {
-  // Mark shift as no-show
-  await supabase
-    .from('shifts')
-    .update({ notes: 'No-show - worker did not clock in' })
-    .eq('id', shiftId);
-
-  // Cancel the Dimona
+  await supabase.from('shifts').update({ notes: 'No-show - worker did not clock in' }).eq('id', shiftId);
   return cancelDimona(shiftId, 'no_show');
 }
 
-
 // ============================================================
-// 6. CHECK DIMONA STATUS : Vérifier le statut d'une déclaration
+// 6. CHECK STATUS
 // ============================================================
-
 export async function checkDimonaStatus(shiftId: string): Promise<{
-  hasDimona: boolean;
-  status: string;
-  periodId?: string;
-  canCancel: boolean;
-  canUpdate: boolean;
+  hasDimona: boolean; status: string; periodId?: string; canCancel: boolean; canUpdate: boolean;
 }> {
   const { data } = await supabase
     .from('dimona_declarations')
@@ -396,11 +305,8 @@ export async function checkDimonaStatus(shiftId: string): Promise<{
     .limit(1)
     .maybeSingle();
 
-  if (!data) {
-    return { hasDimona: false, status: 'none', canCancel: false, canUpdate: false };
-  }
+  if (!data) return { hasDimona: false, status: 'none', canCancel: false, canUpdate: false };
 
-  // Check if there's been a cancel after
   const { data: cancelData } = await supabase
     .from('dimona_declarations')
     .select('status')
