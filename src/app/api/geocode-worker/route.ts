@@ -2,20 +2,19 @@
 // Appelé depuis le formulaire Mon Compte après sauvegarde du profil.
 // Géocode l'adresse et met à jour home_lat / home_lng dans flexi_workers.
 
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
+import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { geocodeAddress } from "@/lib/transport";
 
 export async function POST(request: Request) {
-  const supabase = createRouteHandlerClient({ cookies });
+  const supabase = createClient();
 
   // Vérifie que l'utilisateur est authentifié
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  if (!session) {
+  if (!user) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
 
