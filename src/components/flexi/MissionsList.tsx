@@ -6,7 +6,7 @@ import { acceptShift, refuseShift } from '@/lib/actions/shifts';
 import { calculateHours } from '@/utils';
 import { haversineKm, KM_RATE_CP302, LOCATION_COORDS } from '@/lib/transport';
 import { FLEXI_CONSTANTS, getDefaultRate } from '@/types';
-import { Clock, MapPin, Car } from 'lucide-react';
+import { Clock, MapPin, Car, CheckCircle } from 'lucide-react';
 
 interface MissionsListProps {
   proposed: any[];
@@ -45,6 +45,64 @@ function calcTransport(locationName: string, homeLat: number | null, homeLng: nu
 
 function fmt(n: number) {
   return n.toLocaleString('fr-BE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Get actual hours from time_entries if available */
+function getActualData(shift: any): {
+  hasActual: boolean;
+  actualHours: number | null;
+  clockIn: string | null;
+  clockOut: string | null;
+  validated: boolean;
+} {
+  const entries = shift.time_entries;
+  if (!entries || !Array.isArray(entries) || entries.length === 0) {
+    return { hasActual: false, actualHours: null, clockIn: null, clockOut: null, validated: false };
+  }
+  // Take the first (and usually only) time entry
+  const entry = entries[0];
+  const clockIn = entry.clock_in;
+  const clockOut = entry.clock_out;
+  const validated = entry.validated || false;
+
+  let actualHours = entry.actual_hours;
+  // Calculate from timestamps if actual_hours not set
+  if (!actualHours && clockIn && clockOut) {
+    const diffMs = new Date(clockOut).getTime() - new Date(clockIn).getTime();
+    actualHours = Math.round((diffMs / 3600000) * 100) / 100;
+  }
+
+  return {
+    hasActual: !!clockIn,
+    actualHours,
+    clockIn,
+    clockOut,
+    validated,
+  };
+}
+
+/** Format a timestamp to HH:MM in Brussels timezone */
+function formatTime(ts: string | null): string {
+  if (!ts) return '—';
+  try {
+    return new Date(ts).toLocaleTimeString('fr-BE', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'Europe/Brussels',
+    });
+  } catch {
+    return '—';
+  }
+}
+
+/** Format hours as Xh XXmin */
+function formatHours(h: number | null): string {
+  if (!h) return '—';
+  const hrs = Math.floor(h);
+  const mins = Math.round((h - hrs) * 60);
+  if (hrs === 0) return `${mins}min`;
+  if (mins === 0) return `${hrs}h`;
+  return `${hrs}h${String(mins).padStart(2, '0')}`;
 }
 
 function EarningsBreakdown({ shift, hourlyRate, workerStatus, homeLat, homeLng }: {
@@ -99,11 +157,15 @@ function HistoryEarnings({ shift, hourlyRate, workerStatus, homeLat, homeLng }: 
   homeLat: number | null; homeLng: number | null;
 }) {
   if (!['accepted', 'completed'].includes(shift.status)) return null;
-  const hours = calculateHours(shift.start_time, shift.end_time);
+
+  const actual = getActualData(shift);
+  // Use actual hours if available, otherwise planned
+  const hours = actual.actualHours || calculateHours(shift.start_time, shift.end_time);
   const rate  = hourlyRate || getDefaultRate(workerStatus as any);
   const { net } = calcNet(hours, rate, workerStatus);
   const transport = calcTransport(shift.locations?.name, homeLat, homeLng);
   const total = Math.round((net + (transport?.allowance ?? 0)) * 100) / 100;
+
   return <span className="text-emerald-600 font-semibold"> · ≈ {fmt(total)} €</span>;
 }
 
@@ -211,26 +273,58 @@ export default function MissionsList({
       <div className="space-y-2">
         {history.map((shift) => {
           const s = statusLabels[shift.status] || statusLabels.draft;
+          const actual = getActualData(shift);
+
           return (
             <div key={shift.id}
-              className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-800">
-                  {new Date(shift.date).toLocaleDateString('fr-BE', { day: 'numeric', month: 'short' })}
-                  {' · '}{shift.locations?.name}
-                </p>
-                <p className="text-xs text-gray-400">
-                  {shift.start_time.slice(0, 5)}–{shift.end_time.slice(0, 5)} · {shift.role}
-                  <HistoryEarnings
-                    shift={shift}
-                    hourlyRate={hourlyRate}
-                    workerStatus={workerStatus}
-                    homeLat={homeLat}
-                    homeLng={homeLng}
-                  />
-                </p>
+              className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+              <div className="flex items-center justify-between">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800">
+                    {new Date(shift.date).toLocaleDateString('fr-BE', { day: 'numeric', month: 'short' })}
+                    {' · '}{shift.locations?.name}
+                  </p>
+
+                  {actual.hasActual ? (
+                    // Show actual clocked times
+                    <div className="flex items-center gap-1 text-xs mt-0.5">
+                      <Clock size={11} className="text-blue-500" />
+                      <span className="text-blue-600 font-medium">
+                        {formatTime(actual.clockIn)}–{formatTime(actual.clockOut)}
+                      </span>
+                      <span className="text-gray-400">·</span>
+                      <span className="text-blue-600 font-semibold">
+                        {formatHours(actual.actualHours)}
+                      </span>
+                      {actual.validated && (
+                        <CheckCircle size={11} className="text-emerald-500 ml-0.5" />
+                      )}
+                      <span className="text-gray-300">·</span>
+                      <span className="text-gray-400">{shift.role}</span>
+                      <HistoryEarnings
+                        shift={shift}
+                        hourlyRate={hourlyRate}
+                        workerStatus={workerStatus}
+                        homeLat={homeLat}
+                        homeLng={homeLng}
+                      />
+                    </div>
+                  ) : (
+                    // Fallback: planned shift times
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {shift.start_time.slice(0, 5)}–{shift.end_time.slice(0, 5)} · {shift.role}
+                      <HistoryEarnings
+                        shift={shift}
+                        hourlyRate={hourlyRate}
+                        workerStatus={workerStatus}
+                        homeLat={homeLat}
+                        homeLng={homeLng}
+                      />
+                    </p>
+                  )}
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ml-2 ${s.class}`}>{s.label}</span>
               </div>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${s.class}`}>{s.label}</span>
             </div>
           );
         })}

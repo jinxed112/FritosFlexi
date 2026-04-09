@@ -35,13 +35,14 @@ export default async function FlexiMissionsPage() {
     .eq('status', 'proposed')
     .order('date');
 
+  // History: join time_entries to get actual clock times
   const { data: history } = await supabase
     .from('shifts')
-    .select('*, locations(name)')
+    .select('*, locations(name), time_entries(clock_in, clock_out, actual_hours, validated)')
     .eq('worker_id', (worker as any).id)
     .neq('status', 'proposed')
     .order('date', { ascending: false })
-    .limit(10);
+    .limit(20);
 
   const w = worker as any;
 
