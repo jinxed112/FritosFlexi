@@ -23,9 +23,30 @@ export default function WorkerPayslipsPage() {
 
   useEffect(() => {
     const fetchPayslips = async () => {
-      const { getMyPayslips } = await import('@/lib/actions/payslips');
-      const result = await getMyPayslips();
-      if (result.data) setPayslips(result.data as Payslip[]);
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { setLoading(false); return; }
+
+        // Get worker ID
+        const { data: worker } = await supabase
+          .from('flexi_workers')
+          .select('id')
+          .eq('user_id', user.id)
+          .single();
+        if (!worker) { setLoading(false); return; }
+
+        // Get payslips (RLS ensures only own)
+        const { data } = await supabase
+          .from('payslips')
+          .select('id, period_start, period_end, net_salary, gross_salary, hours_worked, establishment, viewed_at, created_at')
+          .eq('worker_id', worker.id)
+          .order('period_start', { ascending: false });
+
+        if (data) setPayslips(data as Payslip[]);
+      } catch (err) {
+        console.error('Erreur chargement fiches:', err);
+      }
       setLoading(false);
     };
     fetchPayslips();

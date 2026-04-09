@@ -6,6 +6,7 @@ import {
   Upload, FileText, CheckCircle, XCircle, AlertTriangle,
   Trash2, Download, Eye, Clock, Loader2, ChevronDown, ChevronUp,
 } from 'lucide-react';
+import { deletePayslipUpload } from '@/lib/actions/payslips';
 
 interface PayslipUpload {
   id: string;
@@ -121,9 +122,6 @@ export default function AdminPayslipsPage() {
     if (!confirm('Supprimer cet upload et toutes les fiches associées ?')) return;
     setDeleting(uploadId);
     try {
-      const res = await fetch('/api/payslips/upload', { method: 'DELETE' });
-      // Use server action via direct call
-      const { deletePayslipUpload } = await import('@/lib/actions/payslips');
       const result = await deletePayslipUpload(uploadId);
       if (result.error) {
         alert(`Erreur: ${result.error}`);
@@ -131,7 +129,6 @@ export default function AdminPayslipsPage() {
         fetchUploads();
       }
     } catch {
-      // Fallback: re-fetch
       fetchUploads();
     }
     setDeleting(null);
