@@ -136,8 +136,9 @@ export async function POST(req: NextRequest) {
     }
     uploadId = uploadRecord.id;
 
-    // Dynamic imports (pdf-parse is CJS, pdf-lib is ESM-compatible)
-    const pdfParse = require('pdf-parse');
+    // Import pdf-parse internals directly to avoid test-file loading bug on Vercel
+    // (pdf-parse/index.js tries to read a test PDF when !module.parent)
+    const pdfParse = require('pdf-parse/lib/pdf-parse.js');
     const { PDFDocument } = require('pdf-lib');
 
     // Step 1: Get total page count
