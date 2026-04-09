@@ -4,3 +4,4 @@ export * from './clock';
 export * from './dimona';
 export * from './availability';
 export * from './export';
+export * from './payslips';

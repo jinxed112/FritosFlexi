@@ -6,6 +6,7 @@ import Link from 'next/link';
 import {
   LayoutDashboard, Calendar, Users, Radio,
   CheckSquare, FileText, Download, ChevronLeft, Menu, X, LogOut,
+  CreditCard,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
@@ -17,6 +18,7 @@ const navItems = [
   { href: '/dashboard/flexis/live', label: 'Live', icon: Radio },
   { href: '/dashboard/flexis/validation', label: 'Validation', icon: CheckSquare },
   { href: '/dashboard/flexis/dimona', label: 'Dimona', icon: FileText },
+  { href: '/dashboard/flexis/payslips', label: 'Fiches de paie', icon: CreditCard },
   { href: '/dashboard/flexis/export', label: 'Export Partena', icon: Download },
 ];
 
