@@ -6,6 +6,7 @@ import { updateProfile } from '@/lib/actions/workers';
 import { updatePinCode } from '@/lib/actions/clock';
 import { validateNISS, formatNISS, validateIBAN, formatIBAN, validatePhone, profileCompletionCount } from '@/utils/validation';
 import StudentContractsList from '@/components/flexi/StudentContractsList';
+import IndependentConventionsList from '@/components/flexi/IndependentConventionsList';
 import type { FlexiWorker, UpdateProfileInput } from '@/types';
 
 export default function FlexiAccountPage() {
@@ -323,8 +324,9 @@ export default function FlexiAccountPage() {
       {/* Password change */}
       <PasswordChangeSection />
 
-      {/* Contrats selon statut */}
+      {/* Contrats / conventions selon statut */}
       {worker.status === 'student' && <StudentContractsList workerId={worker.id} />}
+      {worker.status === 'independent' && <IndependentConventionsList workerId={worker.id} />}
     </div>
   );
 }
