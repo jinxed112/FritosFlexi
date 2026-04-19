@@ -16,8 +16,6 @@ export default function FlexiClockPage() {
   const [clocking, setClocking] = useState(false);
   const [error, setError] = useState('');
   const [debugInfo, setDebugInfo] = useState('');
-
-  // Convention indépendant
   const [showConvention, setShowConvention] = useState(false);
   const [conventionData, setConventionData] = useState<any>(null);
   const [pendingPosition, setPendingPosition] = useState<GeolocationCoordinates | null>(null);
@@ -47,7 +45,6 @@ export default function FlexiClockPage() {
 
     if (shifts && shifts.length > 0) {
       setShift(shifts[0]);
-
       const { data: entries } = await supabase
         .from('time_entries')
         .select('*')
@@ -55,7 +52,6 @@ export default function FlexiClockPage() {
         .eq('worker_id', worker.id)
         .is('clock_out', null)
         .limit(1);
-
       if (entries && entries.length > 0) {
         setTimeEntry(entries[0]);
       }
@@ -65,7 +61,6 @@ export default function FlexiClockPage() {
 
   useEffect(() => { fetchTodayShift(); }, [fetchTodayShift]);
 
-  // Elapsed time counter
   useEffect(() => {
     if (!timeEntry?.clock_in) return;
     const start = new Date(timeEntry.clock_in).getTime();
@@ -101,7 +96,6 @@ export default function FlexiClockPage() {
       const { latitude, longitude } = position.coords;
 
       if (timeEntry) {
-        // Clock OUT — pas de vérification convention
         const result = await clockOut({ shift_id: shift.id, latitude, longitude });
         if ('error' in result && result.error) {
           setError(result.error);
@@ -110,13 +104,10 @@ export default function FlexiClockPage() {
           setElapsed(0);
         }
       } else {
-        // Clock IN — vérifier si convention indépendant nécessaire
         const check = await checkIndependentConvention(shift.id);
-        console.log('Convention check:', JSON.stringify(check));
         setDebugInfo(JSON.stringify(check));
 
         if (check.needed && check.conventionData) {
-          // Stocker la position et afficher le modal
           setPendingPosition(position.coords);
           setConventionData(check.conventionData);
           setShowConvention(true);
@@ -124,25 +115,21 @@ export default function FlexiClockPage() {
           return;
         }
 
-        // Pas de convention nécessaire (flexi/student/other ou déjà signée)
         await doClockIn(latitude, longitude);
       }
     } catch (err: any) {
-      setError(err.message || 'Erreur de géolocalisation');
+      setError(err.message || 'Erreur de geolocalisation');
     }
     setClocking(false);
   };
 
-  // Appelé après validation de la convention
   const handleConventionSigned = async () => {
     setShowConvention(false);
     setConventionData(null);
-
     if (!pendingPosition) {
-      setError('Position GPS perdue, réessayez');
+      setError('Position GPS perdue, reessayez');
       return;
     }
-
     setClocking(true);
     await doClockIn(pendingPosition.latitude, pendingPosition.longitude);
     setPendingPosition(null);
@@ -167,8 +154,8 @@ export default function FlexiClockPage() {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-gray-400">
         <div className="text-4xl mb-3">🏠</div>
-        <p className="font-medium">Aucun shift prévu aujourd&apos;hui</p>
-        <p className="text-xs mt-1">Revenez quand un shift sera planifié</p>
+        <p className="font-medium">Aucun shift prevu aujourd&apos;hui</p>
+        <p className="text-xs mt-1">Revenez quand un shift sera planifie</p>
       </div>
     );
   }
@@ -176,8 +163,7 @@ export default function FlexiClockPage() {
   const isClockedIn = !!timeEntry;
 
   return (
-    <>
-      {/* Modal convention indépendant */}
+    <div>
       {showConvention && conventionData && (
         <IndependentConventionModal
           conventionData={conventionData}
@@ -191,7 +177,7 @@ export default function FlexiClockPage() {
           {shift.locations?.name}
         </div>
         <div className="text-xs text-gray-400 mb-8">
-          Shift : {shift.start_time.slice(0, 5)} – {shift.end_time.slice(0, 5)}
+          Shift : {shift.start_time.slice(0, 5)} - {shift.end_time.slice(0, 5)}
         </div>
 
         <button
@@ -205,7 +191,7 @@ export default function FlexiClockPage() {
         >
           <span className="text-4xl mb-1">{isClockedIn ? '👋' : '✅'}</span>
           <span className="text-lg font-bold">
-            {clocking ? '...' : isClockedIn ? 'DÉPART' : 'ARRIVÉE'}
+            {clocking ? '...' : isClockedIn ? 'DEPART' : 'ARRIVEE'}
           </span>
         </button>
 
@@ -224,7 +210,7 @@ export default function FlexiClockPage() {
             <p className="text-xs text-gray-400 mt-1">Temps de travail en cours</p>
             <div className="mt-4 flex items-center gap-2 bg-emerald-50 px-4 py-2 rounded-full">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs text-emerald-700 font-medium">Géoloc. vérifiée — sur site</span>
+              <span className="text-xs text-emerald-700 font-medium">Geoloc. verifiee - sur site</span>
             </div>
           </div>
         )}
@@ -233,17 +219,16 @@ export default function FlexiClockPage() {
           <div className="mt-8 text-center">
             <div className="flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-full">
               <MapPin size={14} className="text-blue-500" />
-              <span className="text-xs text-blue-600 font-medium">La géolocalisation sera vérifiée</span>
+              <span className="text-xs text-blue-600 font-medium">La geolocalisation sera verifiee</span>
             </div>
             {debugInfo && (
-              <div className="mt-4 p-3 bg-gray-800 text-green-400 rounded-xl text-[10px] font-mono break-all max-w-xs">
+              <div className="mt-4 p-3 bg-gray-800 text-green-400 rounded-xl text-xs font-mono break-all max-w-xs">
                 {debugInfo}
               </div>
             )}
-            </div>
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }
