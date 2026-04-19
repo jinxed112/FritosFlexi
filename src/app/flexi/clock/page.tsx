@@ -15,6 +15,7 @@ export default function FlexiClockPage() {
   const [loading, setLoading] = useState(true);
   const [clocking, setClocking] = useState(false);
   const [error, setError] = useState('');
+  const [debugInfo, setDebugInfo] = useState('');
 
   // Convention indépendant
   const [showConvention, setShowConvention] = useState(false);
@@ -111,6 +112,8 @@ export default function FlexiClockPage() {
       } else {
         // Clock IN — vérifier si convention indépendant nécessaire
         const check = await checkIndependentConvention(shift.id);
+        console.log('Convention check:', JSON.stringify(check));
+        setDebugInfo(JSON.stringify(check));
 
         if (check.needed && check.conventionData) {
           // Stocker la position et afficher le modal
@@ -194,11 +197,10 @@ export default function FlexiClockPage() {
         <button
           onClick={handleClock}
           disabled={clocking}
-          className={`w-48 h-48 rounded-full flex flex-col items-center justify-center transition-all duration-300 shadow-lg active:scale-95 disabled:opacity-50 ${
-            isClockedIn
-              ? 'bg-gradient-to-br from-red-500 to-red-600 shadow-red-200 text-white'
-              : 'bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-emerald-200 text-white'
-          }`}
+          className={`w-48 h-48 rounded-full flex flex-col items-center justify-center transition-all duration-300 shadow-lg active:scale-95 disabled:opacity-50 ${isClockedIn
+            ? 'bg-gradient-to-br from-red-500 to-red-600 shadow-red-200 text-white'
+            : 'bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-emerald-200 text-white'
+            }`}
         >
           <span className="text-4xl mb-1">{isClockedIn ? '👋' : '✅'}</span>
           <span className="text-lg font-bold">
@@ -232,9 +234,15 @@ export default function FlexiClockPage() {
               <MapPin size={14} className="text-blue-500" />
               <span className="text-xs text-blue-600 font-medium">La géolocalisation sera vérifiée</span>
             </div>
+            {debugInfo && (
+              <div className="mt-4 p-3 bg-gray-800 text-green-400 rounded-xl text-[10px] font-mono break-all max-w-xs">
+                {debugInfo}
+              </div>
+            
+            </div>
           </div>
         )}
-      </div>
+    </div >
     </>
   );
 }
