@@ -11,7 +11,8 @@ import { haversineKm, KM_RATE_CP302, LOCATION_COORDS } from '@/lib/transport';
 import {
   Plus, X, UserPlus, Calendar, Clock, ChevronLeft, ChevronRight,
   Search, MoreHorizontal, KeyRound, Power, Trash2, User, Mail, Phone,
-  CreditCard, MapPin, FileCheck, AlertTriangle, FileText, Globe, GraduationCap, Languages
+  CreditCard, MapPin, FileCheck, AlertTriangle, FileText, Globe, GraduationCap, Languages,
+  Building2
 } from 'lucide-react';
 
 const PRESETS = [
@@ -36,8 +37,15 @@ export default function WorkersList({ workers, locations }: Props) {
   const [resetInfo, setResetInfo] = useState<{ name: string; password: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [createStatus, setCreateStatus] = useState<string>('other');
+  // Champs TVA pour modal création indépendant
+  const [createVatApplicable, setCreateVatApplicable] = useState(false);
+  const [createVatRate, setCreateVatRate] = useState('21.00');
 
-  const defaultRateForStatus = (status: string) => status === 'student' ? 15.21 : 12.78;
+  const defaultRateForStatus = (status: string) => {
+    if (status === 'student') return 15.21;
+    if (status === 'independent') return 18.00;
+    return 12.78;
+  };
   const [isPending, startTransition] = useTransition();
 
   // Search & filters
@@ -83,7 +91,6 @@ export default function WorkersList({ workers, locations }: Props) {
     setAssignSelectedDays([]);
     setAssignSchedules({});
     setAssignSameSchedule(true);
-    // Reset week to current
     const now = new Date();
     const mon = new Date(now);
     mon.setDate(now.getDate() - ((now.getDay() + 6) % 7));
@@ -93,12 +100,17 @@ export default function WorkersList({ workers, locations }: Props) {
   // CRUD
   const handleCreate = (formData: FormData) => {
     startTransition(async () => {
+      const status = formData.get('status') as string;
       const result = await createWorker({
         first_name: formData.get('first_name') as string,
         last_name: formData.get('last_name') as string,
         email: formData.get('email') as string,
-        hourly_rate: parseFloat(formData.get('hourly_rate') as string) || defaultRateForStatus(formData.get('status') as string),
-        status: formData.get('status') as any,
+        hourly_rate: parseFloat(formData.get('hourly_rate') as string) || defaultRateForStatus(status),
+        status: status as any,
+        // Champs indépendant
+        vat_number: status === 'independent' ? (formData.get('vat_number') as string) || undefined : undefined,
+        vat_applicable: status === 'independent' ? createVatApplicable : undefined,
+        vat_rate: status === 'independent' ? parseFloat(createVatRate) || 21 : undefined,
       });
       if (result.tempPassword) setTempPassword(result.tempPassword);
       else setShowCreateModal(false);
@@ -183,10 +195,11 @@ export default function WorkersList({ workers, locations }: Props) {
   };
 
   const statusLabels: Record<string, { label: string; bg: string; text: string }> = {
-    student: { label: 'Étudiant', bg: 'bg-blue-100', text: 'text-blue-700' },
-    pensioner: { label: 'Pensionné', bg: 'bg-purple-100', text: 'text-purple-700' },
-    employee: { label: 'Salarié', bg: 'bg-indigo-100', text: 'text-indigo-700' },
-    other: { label: 'Autre', bg: 'bg-gray-100', text: 'text-gray-600' },
+    student:     { label: 'Étudiant',      bg: 'bg-blue-100',    text: 'text-blue-700' },
+    pensioner:   { label: 'Pensionné',     bg: 'bg-purple-100',  text: 'text-purple-700' },
+    employee:    { label: 'Salarié',       bg: 'bg-indigo-100',  text: 'text-indigo-700' },
+    other:       { label: 'Autre',         bg: 'bg-gray-100',    text: 'text-gray-600' },
+    independent: { label: 'Indépendant',   bg: 'bg-amber-100',   text: 'text-amber-700' },
   };
 
   const formatH = (h: number) => { const hrs = Math.floor(h); const mins = Math.round((h - hrs) * 60); return mins > 0 ? `${hrs}h${mins.toString().padStart(2, '0')}` : `${hrs}h`; };
@@ -195,19 +208,27 @@ export default function WorkersList({ workers, locations }: Props) {
   const assignTotalCost = assignSelectedDays.reduce((sum, iso) => {
     const sc = assignSchedules[iso] || { start: '17:00', end: '21:30' };
     const h = calculateHours(sc.start + ':00', sc.end + ':00');
+    // Indépendants : pas de cotisation 28%
+    if (selectedWorker?.status === 'independent') {
+      return sum + h * (selectedWorker?.hourly_rate || 18.00);
+    }
     return sum + calculateCost(h, selectedWorker?.hourly_rate || 12.78).total_cost;
   }, 0);
 
+  // Indépendants : profile_complete suffit (pas de contrat-cadre requis côté assignation)
   const canAssign = selectedWorker?.is_active && selectedWorker?.profile_complete;
+
+  // Pas de plafond YTD pour pensionné et indépendant
+  const hasYtdCap = (status: string) => status !== 'pensioner' && status !== 'independent';
 
   return (
     <>
       {/* ============ HEADER ============ */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Mon Équipe</h1>
-        <button onClick={() => { setShowCreateModal(true); setTempPassword(''); setCreateStatus('other'); }}
+        <button onClick={() => { setShowCreateModal(true); setTempPassword(''); setCreateStatus('other'); setCreateVatApplicable(false); setCreateVatRate('21.00'); }}
           className="bg-orange-500 hover:bg-orange-600 text-white px-3 sm:px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-1.5">
-          <UserPlus size={16} /> <span className="hidden sm:inline">Nouveau flexi</span><span className="sm:hidden">Ajouter</span>
+          <UserPlus size={16} /> <span className="hidden sm:inline">Nouveau worker</span><span className="sm:hidden">Ajouter</span>
         </button>
       </div>
 
@@ -253,7 +274,7 @@ export default function WorkersList({ workers, locations }: Props) {
           )}
           {filtered.map((w: any) => {
             const st = statusLabels[w.status] || statusLabels.other;
-            const pct = w.status !== 'pensioner' ? Math.min((w.ytd_earnings / 18000) * 100, 100) : 0;
+            const pct = hasYtdCap(w.status) ? Math.min((w.ytd_earnings / 18000) * 100, 100) : 0;
             const isMenuOpen = openMenuId === w.id;
 
             return (
@@ -287,7 +308,7 @@ export default function WorkersList({ workers, locations }: Props) {
 
                   {/* Gains — desktop */}
                   <div className="hidden sm:block text-center">
-                    {w.status !== 'pensioner' ? (
+                    {hasYtdCap(w.status) ? (
                       <div>
                         <div className="text-xs text-gray-500">{w.ytd_earnings.toLocaleString('fr-BE')} €</div>
                         <div className="h-1.5 w-16 mx-auto bg-gray-100 rounded-full overflow-hidden mt-1">
@@ -381,10 +402,13 @@ export default function WorkersList({ workers, locations }: Props) {
                 className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${panelTab === 'assign' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                 <Calendar size={14} className="inline mr-1.5 -mt-0.5" />Assigner
               </button>
-              <button onClick={() => setPanelTab('contrats')}
-                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${panelTab === 'contrats' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                <FileText size={14} className="inline mr-1.5 -mt-0.5" />Contrats
-              </button>
+              {/* Onglet contrats masqué pour les indépendants */}
+              {selectedWorker.status !== 'independent' && (
+                <button onClick={() => setPanelTab('contrats')}
+                  className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${panelTab === 'contrats' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                  <FileText size={14} className="inline mr-1.5 -mt-0.5" />Contrats
+                </button>
+              )}
             </div>
 
             {/* Panel content */}
@@ -398,7 +422,12 @@ export default function WorkersList({ workers, locations }: Props) {
                     <InfoRow icon={<Mail size={14} />} label="Email" value={selectedWorker.email} />
                     <InfoRow icon={<Phone size={14} />} label="Téléphone" value={selectedWorker.phone} />
                     <InfoRow icon={<User size={14} />} label="Date de naissance" value={selectedWorker.date_of_birth ? new Date(selectedWorker.date_of_birth).toLocaleDateString('fr-BE') : null} />
-                    <InfoRow icon={<CreditCard size={14} />} label="NISS" value={selectedWorker.niss} />
+
+                    {/* NISS uniquement pour non-indépendants */}
+                    {selectedWorker.status !== 'independent' && (
+                      <InfoRow icon={<CreditCard size={14} />} label="NISS" value={selectedWorker.niss} />
+                    )}
+
                     <InfoRow icon={<CreditCard size={14} />} label="IBAN" value={selectedWorker.iban} />
                     <InfoRow icon={<MapPin size={14} />} label="Adresse" value={
                       selectedWorker.address_street
@@ -418,28 +447,47 @@ export default function WorkersList({ workers, locations }: Props) {
                     <InfoRow icon={<GraduationCap size={14} />} label="Niveau d'études" value={
                       selectedWorker.education_level === 'primaire' ? 'Niveau primaire' : selectedWorker.education_level === 'secondaire' ? 'Niveau secondaire' : selectedWorker.education_level === 'superieur' ? 'Supérieur non univ.' : selectedWorker.education_level === 'universitaire' ? 'Universitaire' : selectedWorker.education_level === 'inconnu' ? 'Inconnu' : selectedWorker.education_level || null
                     } />
-                    {/* Contrat-cadre — with download link */}
-                    <div className="flex items-center gap-3 py-2.5 px-1 border-b border-gray-50">
-                      <div className="text-gray-300 flex-shrink-0"><FileCheck size={14} /></div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[11px] text-gray-400 font-medium">Contrat-cadre</div>
-                        {selectedWorker.framework_contract_date ? (
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-emerald-600 font-medium">
-                              Signé le {new Date(selectedWorker.framework_contract_date).toLocaleDateString('fr-BE')}
-                            </span>
-                            {selectedWorker.framework_contract_url && (
-                              <a href={selectedWorker.framework_contract_url} target="_blank" rel="noopener noreferrer"
-                                className="text-[10px] px-2 py-0.5 bg-orange-50 text-orange-600 rounded-full hover:bg-orange-100 transition-colors font-medium">
-                                PDF ↗
-                              </a>
+
+                    {/* Contrat-cadre uniquement pour non-indépendants */}
+                    {selectedWorker.status !== 'independent' ? (
+                      <div className="flex items-center gap-3 py-2.5 px-1 border-b border-gray-50">
+                        <div className="text-gray-300 flex-shrink-0"><FileCheck size={14} /></div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[11px] text-gray-400 font-medium">Contrat-cadre</div>
+                          {selectedWorker.framework_contract_date ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm text-emerald-600 font-medium">
+                                Signé le {new Date(selectedWorker.framework_contract_date).toLocaleDateString('fr-BE')}
+                              </span>
+                              {selectedWorker.framework_contract_url && (
+                                <a href={selectedWorker.framework_contract_url} target="_blank" rel="noopener noreferrer"
+                                  className="text-[10px] px-2 py-0.5 bg-orange-50 text-orange-600 rounded-full hover:bg-orange-100 transition-colors font-medium">
+                                  PDF ↗
+                                </a>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-sm text-red-400 italic">Non signé</div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      /* Champs TVA pour indépendants */
+                      <>
+                        <InfoRow icon={<Building2 size={14} />} label="N° TVA / BCE" value={selectedWorker.vat_number} missing="Non renseigné" />
+                        <div className="flex items-center gap-3 py-2.5 px-1 border-b border-gray-50">
+                          <div className="text-gray-300 flex-shrink-0"><Building2 size={14} /></div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[11px] text-gray-400 font-medium">TVA</div>
+                            {selectedWorker.vat_applicable ? (
+                              <div className="text-sm text-gray-800">{selectedWorker.vat_rate}% applicable</div>
+                            ) : (
+                              <div className="text-sm text-gray-500">Franchise art. 56bis (sans TVA)</div>
                             )}
                           </div>
-                        ) : (
-                          <div className="text-sm text-red-400 italic">Non signé</div>
-                        )}
-                      </div>
-                    </div>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   {/* Gains section */}
@@ -448,10 +496,10 @@ export default function WorkersList({ workers, locations }: Props) {
                       <span className="text-sm font-medium text-gray-700">Gains 2026</span>
                       <span className="text-sm font-bold text-gray-900">
                         {selectedWorker.ytd_earnings?.toLocaleString('fr-BE') || '0'} €
-                        {selectedWorker.status !== 'pensioner' ? ' / 18 000 €' : ' (illimité)'}
+                        {hasYtdCap(selectedWorker.status) ? ' / 18 000 €' : ' (illimité)'}
                       </span>
                     </div>
-                    {selectedWorker.status !== 'pensioner' && (() => {
+                    {hasYtdCap(selectedWorker.status) && (() => {
                       const pct = Math.min((selectedWorker.ytd_earnings / 18000) * 100, 100);
                       return (
                         <>
@@ -485,7 +533,7 @@ export default function WorkersList({ workers, locations }: Props) {
                     {selectedWorker.home_lat && selectedWorker.home_lng ? (
                       <div className="space-y-2">
                         {Object.entries(LOCATION_COORDS).map(([name, coords]) => {
-                          const km = Math.round(haversineKm(selectedWorker.home_lat, selectedWorker.home_lng, coords.lat, coords.lng) * 10) / 10;
+                          const km = Math.round(haversineKm(selectedWorker.home_lat, selectedWorker.home_lng, (coords as any).lat, (coords as any).lng) * 10) / 10;
                           const allowance = Math.round(km * KM_RATE_CP302 * 100) / 100;
                           return (
                             <div key={name} className="flex items-center justify-between bg-white rounded-lg px-3 py-2">
@@ -517,7 +565,9 @@ export default function WorkersList({ workers, locations }: Props) {
                         <span className="text-sm font-medium text-red-700">Profil incomplet</span>
                       </div>
                       <p className="text-xs text-red-600">
-                        Ce worker doit compléter son profil (NISS, adresse, IBAN, contrat-cadre...) avant de pouvoir être assigné à des missions.
+                        {selectedWorker.status === 'independent'
+                          ? 'Ce worker doit compléter son profil (adresse, IBAN, numéro TVA/BCE...) avant de pouvoir être assigné à des missions.'
+                          : 'Ce worker doit compléter son profil (NISS, adresse, IBAN, contrat-cadre...) avant de pouvoir être assigné à des missions.'}
                       </p>
                     </div>
                   )}
@@ -544,7 +594,7 @@ export default function WorkersList({ workers, locations }: Props) {
               )}
 
               {/* ===== CONTRATS TAB ===== */}
-              {panelTab === 'contrats' && (
+              {panelTab === 'contrats' && selectedWorker.status !== 'independent' && (
                 <ManagerContractsPanel
                   workerId={selectedWorker.id}
                   workerName={`${selectedWorker.first_name} ${selectedWorker.last_name}`}
@@ -561,7 +611,9 @@ export default function WorkersList({ workers, locations }: Props) {
                       <p className="text-xs text-gray-400">
                         {!selectedWorker.is_active
                           ? 'Ce worker est désactivé. Réactivez-le d\'abord.'
-                          : 'Le profil est incomplet. Le worker doit compléter ses informations (NISS, adresse, IBAN...) depuis son portail.'}
+                          : selectedWorker.status === 'independent'
+                            ? 'Le profil est incomplet. L\'indépendant doit compléter ses informations (adresse, IBAN, N° TVA...) depuis son portail.'
+                            : 'Le profil est incomplet. Le worker doit compléter ses informations (NISS, adresse, IBAN...) depuis son portail.'}
                       </p>
                     </div>
                   ) : (
@@ -669,7 +721,9 @@ export default function WorkersList({ workers, locations }: Props) {
                           {/* Cost */}
                           <div className="p-3 bg-orange-50 rounded-xl flex items-center justify-between">
                             <div>
-                              <div className="text-xs text-orange-600 font-medium">Coût total estimé</div>
+                              <div className="text-xs text-orange-600 font-medium">
+                                {selectedWorker.status === 'independent' ? 'Montant estimé HTVA' : 'Coût total estimé'}
+                              </div>
                               <div className="text-[10px] text-orange-400">{assignSelectedDays.length} shift(s)</div>
                             </div>
                             <div className="text-lg font-bold text-orange-700">{formatEuro(assignTotalCost)}</div>
@@ -702,7 +756,7 @@ export default function WorkersList({ workers, locations }: Props) {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-gray-900">{tempPassword ? 'Compte créé ✓' : 'Nouveau flexi'}</h3>
+              <h3 className="font-bold text-gray-900">{tempPassword ? 'Compte créé ✓' : 'Nouveau worker'}</h3>
               <button onClick={() => setShowCreateModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
             </div>
             {tempPassword ? (
@@ -711,7 +765,7 @@ export default function WorkersList({ workers, locations }: Props) {
                   <p className="text-sm text-emerald-700 mb-2">Mot de passe temporaire :</p>
                   <p className="text-2xl font-mono font-bold text-emerald-800 select-all">{tempPassword}</p>
                 </div>
-                <p className="text-xs text-gray-500 text-center">Communiquez ce mot de passe au flexi.</p>
+                <p className="text-xs text-gray-500 text-center">Communiquez ce mot de passe au worker.</p>
                 <button onClick={() => setShowCreateModal(false)} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl py-2.5 font-medium text-sm">Fermer</button>
               </div>
             ) : (
@@ -725,16 +779,54 @@ export default function WorkersList({ workers, locations }: Props) {
                 <div><label className="block text-xs font-medium text-gray-500 mb-1">Email</label>
                   <input type="email" name="email" required className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" /></div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div><label className="block text-xs font-medium text-gray-500 mb-1">Taux horaire (€)</label>
-                    <input type="number" name="hourly_rate" value={defaultRateForStatus(createStatus)} onChange={() => {}} step="0.01" className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-blue-50 text-blue-800 font-medium" /></div>
-                  <div><label className="block text-xs font-medium text-gray-500 mb-1">Statut</label>
-                    <select name="status" value={createStatus} onChange={(e) => setCreateStatus(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Taux horaire (€)</label>
+                    <input type="number" name="hourly_rate" value={defaultRateForStatus(createStatus)} onChange={() => {}} step="0.01"
+                      className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-blue-50 text-blue-800 font-medium" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Type</label>
+                    <select name="status" value={createStatus} onChange={(e) => setCreateStatus(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white">
                       <option value="other">Flexi (autre)</option>
                       <option value="student">Étudiant</option>
                       <option value="pensioner">Pensionné</option>
                       <option value="employee">Salarié</option>
-                    </select></div>
+                      <option value="independent">Indépendant</option>
+                    </select>
+                  </div>
                 </div>
+
+                {/* Champs spécifiques indépendant */}
+                {createStatus === 'independent' && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
+                    <p className="text-xs font-medium text-amber-700">Informations indépendant</p>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">N° TVA / BCE</label>
+                      <input type="text" name="vat_number" placeholder="BE0123456789"
+                        className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={createVatApplicable} onChange={(e) => setCreateVatApplicable(e.target.checked)}
+                          className="rounded border-gray-300 text-orange-500 focus:ring-orange-500" />
+                        <span className="text-xs text-gray-600">Soumet la TVA</span>
+                      </label>
+                      {createVatApplicable && (
+                        <div className="flex items-center gap-1.5">
+                          <input type="number" value={createVatRate} onChange={(e) => setCreateVatRate(e.target.value)}
+                            step="0.01" min="0" max="21"
+                            className="w-16 px-2 py-1.5 rounded-lg border border-gray-200 text-sm text-center" />
+                          <span className="text-xs text-gray-500">%</span>
+                        </div>
+                      )}
+                      {!createVatApplicable && (
+                        <span className="text-xs text-gray-400">Franchise art. 56bis</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <button type="submit" disabled={isPending}
                   className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-2.5 font-medium text-sm disabled:opacity-50">
                   {isPending ? 'Création...' : 'Créer le compte'}

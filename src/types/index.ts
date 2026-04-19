@@ -47,11 +47,15 @@ export interface FlexiWorker {
   profile_complete: boolean;
   is_active: boolean;
   default_location_id: string | null;
+  // Champs indépendant complémentaire
+  vat_number: string | null;        // Numéro BCE/TVA ex: BE0123456789
+  vat_applicable: boolean;          // Soumet-il la TVA ?
+  vat_rate: number;                 // Taux TVA (ex: 21.00 ou 0 si franchise)
   created_at: string;
   updated_at: string;
 }
 
-export type WorkerStatus = 'student' | 'pensioner' | 'employee' | 'other';
+export type WorkerStatus = 'student' | 'pensioner' | 'employee' | 'other' | 'independent';
 
 export interface FlexiAvailability {
   id: string;
@@ -158,6 +162,29 @@ export interface PayrollExport {
   created_at: string;
 }
 
+// ─── Indépendant Complémentaire ──────────────────────────────
+
+export interface IndependentInvoice {
+  id: string;
+  invoice_number: string;       // ex: MDJ-2026-001
+  worker_id: string;
+  period_start: string;
+  period_end: string;
+  shift_ids: string[];
+  total_hours: number;
+  hourly_rate: number;
+  subtotal_htva: number;
+  vat_rate: number;             // 0 si franchise art. 56bis
+  vat_amount: number;
+  total_ttc: number;
+  file_url: string | null;      // PDF dans Supabase Storage
+  generated_by: string | null;  // NULL = généré par le worker lui-même
+  paid: boolean;
+  paid_at: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
 // ─── Enriched / View Types ──────────────────────────────────
 
 export interface ShiftEnriched extends Shift {
@@ -165,6 +192,7 @@ export interface ShiftEnriched extends Shift {
   worker_last_name: string | null;
   worker_phone: string | null;
   worker_profile_complete: boolean | null;
+  worker_status: WorkerStatus | null;
   location_name: string;
   location_address: string;
   dimona_status: DimonaStatus | null;
@@ -198,6 +226,10 @@ export interface CreateWorkerInput {
   email: string;
   hourly_rate?: number;
   status?: WorkerStatus;
+  // Champs indépendant
+  vat_number?: string;
+  vat_applicable?: boolean;
+  vat_rate?: number;
 }
 
 export interface UpdateProfileInput {
@@ -220,6 +252,10 @@ export interface UpdateProfileInput {
   iban?: string;
   status?: WorkerStatus;
   default_location_id?: string | null;
+  // Champs indépendant
+  vat_number?: string;
+  vat_applicable?: boolean;
+  vat_rate?: number;
 }
 
 export interface CreateShiftInput {
@@ -236,6 +272,14 @@ export interface ClockInput {
   shift_id: string;
   latitude: number;
   longitude: number;
+}
+
+export interface CreateInvoiceInput {
+  worker_id: string;
+  period_start: string;
+  period_end: string;
+  shift_ids: string[];
+  notes?: string;
 }
 
 // ─── UI State Types ─────────────────────────────────────────
@@ -268,8 +312,11 @@ export const FLEXI_CONSTANTS = {
   MIN_HOURLY_RATE_STUDENT: 15.21,
   // Ancien taux (avant mars 2026) — conservé pour référence historique
   MIN_HOURLY_RATE_LEGACY: 12.53,
+  // Taux indépendant par défaut — pas de minimum légal, configurable par worker
+  INDEPENDENT_DEFAULT_RATE: 18.00,
   MAX_RATE_MULTIPLIER: 1.5,
-  EMPLOYER_CONTRIBUTION_RATE: 0.28,
+  EMPLOYER_CONTRIBUTION_RATE: 0.28,       // Flexi/other/pensioner/employee
+  EMPLOYER_CONTRIBUTION_INDEPENDENT: 0,   // Indépendant : pas de cotisation patronale
   SUNDAY_PREMIUM_PER_HOUR: 2,
   SUNDAY_PREMIUM_MAX_PER_DAY: 12,
   VACATION_PAY_RATE: 0.0767,
@@ -282,9 +329,31 @@ export const FLEXI_CONSTANTS = {
   WORKER_TYPE: 'FLX',
 } as const;
 
-/** Retourne le taux horaire minimum légal selon le statut du worker */
+/** Retourne le taux horaire minimum/par défaut selon le statut du worker */
 export function getDefaultRate(status: WorkerStatus): number {
-  return status === 'student'
-    ? FLEXI_CONSTANTS.MIN_HOURLY_RATE_STUDENT
-    : FLEXI_CONSTANTS.MIN_HOURLY_RATE;
+  switch (status) {
+    case 'student':     return FLEXI_CONSTANTS.MIN_HOURLY_RATE_STUDENT;
+    case 'independent': return FLEXI_CONSTANTS.INDEPENDENT_DEFAULT_RATE;
+    default:            return FLEXI_CONSTANTS.MIN_HOURLY_RATE;
+  }
+}
+
+/** Retourne le taux de cotisation patronale selon le statut */
+export function getEmployerContributionRate(status: WorkerStatus): number {
+  return status === 'independent' ? 0 : FLEXI_CONSTANTS.EMPLOYER_CONTRIBUTION_RATE;
+}
+
+/** True si le worker est soumis à la Dimona ONSS */
+export function requiresDimona(status: WorkerStatus): boolean {
+  return status !== 'independent';
+}
+
+/** True si le worker apparaît dans l'export Partena */
+export function appearsInPartenaExport(status: WorkerStatus): boolean {
+  return status !== 'independent';
+}
+
+/** True si le plafond 18 000€ s'applique */
+export function hasYtdCap(status: WorkerStatus): boolean {
+  return status !== 'pensioner' && status !== 'independent';
 }

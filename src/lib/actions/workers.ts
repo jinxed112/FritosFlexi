@@ -36,17 +36,27 @@ export async function createWorker(input: CreateWorkerInput) {
 
   const status = input.status ?? 'other';
 
+  // Construire le record worker
+  const workerRecord: Record<string, unknown> = {
+    user_id: authData.user.id,
+    first_name: input.first_name,
+    last_name: input.last_name,
+    email: input.email,
+    hourly_rate: input.hourly_rate ?? getDefaultRate(status),
+    status,
+  };
+
+  // Champs spécifiques indépendant
+  if (status === 'independent') {
+    if (input.vat_number)    workerRecord.vat_number    = input.vat_number;
+    if (input.vat_applicable !== undefined) workerRecord.vat_applicable = input.vat_applicable;
+    if (input.vat_rate !== undefined)       workerRecord.vat_rate       = input.vat_rate;
+  }
+
   // Create worker record
   const { data: workerData, error: workerError } = await supabase
     .from('flexi_workers')
-    .insert({
-      user_id: authData.user.id,
-      first_name: input.first_name,
-      last_name: input.last_name,
-      email: input.email,
-      hourly_rate: input.hourly_rate ?? getDefaultRate(status),
-      status,
-    })
+    .insert(workerRecord)
     .select()
     .single();
 

@@ -71,6 +71,10 @@ export interface Database {
           profile_complete: boolean;
           is_active: boolean;
           default_location_id: string | null;
+          // Champs indépendant complémentaire
+          vat_number: string | null;
+          vat_applicable: boolean;
+          vat_rate: number;
           created_at: string;
           updated_at: string;
         };
@@ -96,6 +100,9 @@ export interface Database {
           profile_complete?: boolean;
           is_active?: boolean;
           default_location_id?: string | null;
+          vat_number?: string | null;
+          vat_applicable?: boolean;
+          vat_rate?: number;
         };
         Update: {
           first_name?: string;
@@ -114,6 +121,9 @@ export interface Database {
           framework_contract_date?: string | null;
           is_active?: boolean;
           default_location_id?: string | null;
+          vat_number?: string | null;
+          vat_applicable?: boolean;
+          vat_rate?: number;
         };
       };
       flexi_availabilities: {
@@ -333,6 +343,53 @@ export interface Database {
           sent_at?: string | null;
         };
       };
+      independent_invoices: {
+        Row: {
+          id: string;
+          invoice_number: string;
+          worker_id: string;
+          period_start: string;
+          period_end: string;
+          shift_ids: string[];
+          total_hours: number;
+          hourly_rate: number;
+          subtotal_htva: number;
+          vat_rate: number;
+          vat_amount: number;
+          total_ttc: number;
+          file_url: string | null;
+          generated_by: string | null;
+          paid: boolean;
+          paid_at: string | null;
+          notes: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          invoice_number: string;
+          worker_id: string;
+          period_start: string;
+          period_end: string;
+          shift_ids?: string[];
+          total_hours: number;
+          hourly_rate: number;
+          subtotal_htva: number;
+          vat_rate?: number;
+          vat_amount?: number;
+          total_ttc: number;
+          file_url?: string | null;
+          generated_by?: string | null;
+          paid?: boolean;
+          paid_at?: string | null;
+          notes?: string | null;
+        };
+        Update: {
+          file_url?: string | null;
+          paid?: boolean;
+          paid_at?: string | null;
+          notes?: string | null;
+        };
+      };
     };
     Views: {
       v_shifts_enriched: {
@@ -351,6 +408,7 @@ export interface Database {
           worker_last_name: string | null;
           worker_phone: string | null;
           worker_profile_complete: boolean | null;
+          worker_status: string | null;
           location_name: string;
           location_address: string;
           dimona_status: string | null;
