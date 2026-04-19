@@ -3,10 +3,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { clockIn, clockOut } from '@/lib/actions/clock';
-import { checkIndependentConvention } from '@/lib/actions/convention';
+import { signIndependentConvention } from '@/lib/actions/convention';
 import { getCurrentPosition } from '@/utils/geo';
 import { MapPin, AlertCircle } from 'lucide-react';
-import IndependentConventionModal from '@/components/flexi/IndependentConventionModal';
 
 export default function FlexiClockPage() {
   const [shift, setShift] = useState<any>(null);
@@ -15,10 +14,7 @@ export default function FlexiClockPage() {
   const [loading, setLoading] = useState(true);
   const [clocking, setClocking] = useState(false);
   const [error, setError] = useState('');
-  const [debugInfo, setDebugInfo] = useState('');
-  const [showConvention, setShowConvention] = useState(false);
-  const [conventionData, setConventionData] = useState<any>(null);
-  const [pendingPosition, setPendingPosition] = useState<GeolocationCoordinates | null>(null);
+  const [worker, setWorker] = useState<any>(null);
 
   const supabase = createClient();
 
@@ -26,19 +22,20 @@ export default function FlexiClockPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const { data: worker } = await supabase
+    const { data: w } = await supabase
       .from('flexi_workers')
-      .select('id')
+      .select('id, status, hourly_rate, vat_applicable, vat_rate, vat_number, signature_url')
       .eq('user_id', user.id)
       .single();
 
-    if (!worker) return;
+    if (!w) return;
+    setWorker(w);
 
     const today = new Date().toISOString().split('T')[0];
     const { data: shifts } = await supabase
       .from('shifts')
-      .select('*, locations(name, latitude, longitude, geo_radius_meters)')
-      .eq('worker_id', worker.id)
+      .select('*, locations(id, name, address, latitude, longitude, geo_radius_meters)')
+      .eq('worker_id', w.id)
       .eq('date', today)
       .eq('status', 'accepted')
       .limit(1);
@@ -49,7 +46,7 @@ export default function FlexiClockPage() {
         .from('time_entries')
         .select('*')
         .eq('shift_id', shifts[0].id)
-        .eq('worker_id', worker.id)
+        .eq('worker_id', w.id)
         .is('clock_out', null)
         .limit(1);
       if (entries && entries.length > 0) {
@@ -86,6 +83,46 @@ export default function FlexiClockPage() {
     }
   };
 
+  const generateConventionInBackground = async (latitude: number, longitude: number) => {
+    if (!worker || !shift) return;
+
+    // Verifier si convention deja generee
+    const { data: existing } = await supabase
+      .from('independent_conventions')
+      .select('id')
+      .eq('shift_id', shift.id)
+      .maybeSingle();
+
+    if (existing) return;
+
+    const [sh, sm] = shift.start_time.split(':').map(Number);
+    const [eh, em] = shift.end_time.split(':').map(Number);
+    const hours = ((eh * 60 + em) - (sh * 60 + sm)) / 60;
+    const hourlyRate = worker.hourly_rate || 18;
+    const amountHtva = Math.round(hours * hourlyRate * 100) / 100;
+    const vatRate = worker.vat_applicable ? (worker.vat_rate || 21) : 0;
+    const vatAmount = Math.round(amountHtva * vatRate / 100 * 100) / 100;
+    const amountTtc = Math.round((amountHtva + vatAmount) * 100) / 100;
+
+    // Generation en arriere-plan, sans bloquer le pointage
+    signIndependentConvention({
+      shiftId: shift.id,
+      workerId: worker.id,
+      locationId: shift.location_id,
+      conventionDate: shift.date,
+      startTime: shift.start_time.slice(0, 5),
+      endTime: shift.end_time.slice(0, 5),
+      hourlyRate,
+      amountHtva,
+      vatRate,
+      vatAmount,
+      amountTtc,
+      geoLat: latitude,
+      geoLng: longitude,
+      userAgent: navigator.userAgent,
+    }).catch(console.error);
+  };
+
   const handleClock = async () => {
     if (!shift) return;
     setClocking(true);
@@ -104,42 +141,16 @@ export default function FlexiClockPage() {
           setElapsed(0);
         }
       } else {
-        const check = await checkIndependentConvention(shift.id);
-        setDebugInfo(JSON.stringify(check));
-
-        if (check.needed && check.conventionData) {
-          setPendingPosition(position.coords);
-          setConventionData(check.conventionData);
-          setShowConvention(true);
-          setClocking(false);
-          return;
+        // Pour les independants : generer convention en arriere-plan si signature existe
+        if (worker?.status === 'independent' && worker?.signature_url) {
+          generateConventionInBackground(latitude, longitude);
         }
-
         await doClockIn(latitude, longitude);
       }
     } catch (err: any) {
       setError(err.message || 'Erreur de geolocalisation');
     }
     setClocking(false);
-  };
-
-  const handleConventionSigned = async () => {
-    setShowConvention(false);
-    setConventionData(null);
-    if (!pendingPosition) {
-      setError('Position GPS perdue, reessayez');
-      return;
-    }
-    setClocking(true);
-    await doClockIn(pendingPosition.latitude, pendingPosition.longitude);
-    setPendingPosition(null);
-    setClocking(false);
-  };
-
-  const handleConventionCancel = () => {
-    setShowConvention(false);
-    setConventionData(null);
-    setPendingPosition(null);
   };
 
   if (loading) {
@@ -163,72 +174,57 @@ export default function FlexiClockPage() {
   const isClockedIn = !!timeEntry;
 
   return (
-    <div>
-      {showConvention && conventionData && (
-        <IndependentConventionModal
-          conventionData={conventionData}
-          onSigned={handleConventionSigned}
-          onCancel={handleConventionCancel}
-        />
+    <div className="flex flex-col items-center pt-6">
+      <div className="text-sm font-medium text-gray-500 mb-1">
+        {shift.locations?.name}
+      </div>
+      <div className="text-xs text-gray-400 mb-8">
+        Shift : {shift.start_time.slice(0, 5)} - {shift.end_time.slice(0, 5)}
+      </div>
+
+      <button
+        onClick={handleClock}
+        disabled={clocking}
+        className={`w-48 h-48 rounded-full flex flex-col items-center justify-center transition-all duration-300 shadow-lg active:scale-95 disabled:opacity-50 ${
+          isClockedIn
+            ? 'bg-gradient-to-br from-red-500 to-red-600 shadow-red-200 text-white'
+            : 'bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-emerald-200 text-white'
+        }`}
+      >
+        <span className="text-4xl mb-1">{isClockedIn ? '👋' : '✅'}</span>
+        <span className="text-lg font-bold">
+          {clocking ? '...' : isClockedIn ? 'DEPART' : 'ARRIVEE'}
+        </span>
+      </button>
+
+      {error && (
+        <div className="mt-6 flex items-center gap-2 bg-red-50 text-red-600 px-4 py-2 rounded-xl text-sm max-w-xs text-center">
+          <AlertCircle size={16} />
+          {error}
+        </div>
       )}
 
-      <div className="flex flex-col items-center pt-6">
-        <div className="text-sm font-medium text-gray-500 mb-1">
-          {shift.locations?.name}
+      {isClockedIn && (
+        <div className="mt-8 text-center">
+          <div className="text-3xl font-mono font-bold text-gray-800 tracking-wider">
+            {formatElapsed(elapsed)}
+          </div>
+          <p className="text-xs text-gray-400 mt-1">Temps de travail en cours</p>
+          <div className="mt-4 flex items-center gap-2 bg-emerald-50 px-4 py-2 rounded-full">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-xs text-emerald-700 font-medium">Geoloc. verifiee - sur site</span>
+          </div>
         </div>
-        <div className="text-xs text-gray-400 mb-8">
-          Shift : {shift.start_time.slice(0, 5)} - {shift.end_time.slice(0, 5)}
+      )}
+
+      {!isClockedIn && (
+        <div className="mt-8 text-center">
+          <div className="flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-full">
+            <MapPin size={14} className="text-blue-500" />
+            <span className="text-xs text-blue-600 font-medium">La geolocalisation sera verifiee</span>
+          </div>
         </div>
-
-        <button
-          onClick={handleClock}
-          disabled={clocking}
-          className={`w-48 h-48 rounded-full flex flex-col items-center justify-center transition-all duration-300 shadow-lg active:scale-95 disabled:opacity-50 ${
-            isClockedIn
-              ? 'bg-gradient-to-br from-red-500 to-red-600 shadow-red-200 text-white'
-              : 'bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-emerald-200 text-white'
-          }`}
-        >
-          <span className="text-4xl mb-1">{isClockedIn ? '👋' : '✅'}</span>
-          <span className="text-lg font-bold">
-            {clocking ? '...' : isClockedIn ? 'DEPART' : 'ARRIVEE'}
-          </span>
-        </button>
-
-        {error && (
-          <div className="mt-6 flex items-center gap-2 bg-red-50 text-red-600 px-4 py-2 rounded-xl text-sm max-w-xs text-center">
-            <AlertCircle size={16} />
-            {error}
-          </div>
-        )}
-
-        {isClockedIn && (
-          <div className="mt-8 text-center">
-            <div className="text-3xl font-mono font-bold text-gray-800 tracking-wider">
-              {formatElapsed(elapsed)}
-            </div>
-            <p className="text-xs text-gray-400 mt-1">Temps de travail en cours</p>
-            <div className="mt-4 flex items-center gap-2 bg-emerald-50 px-4 py-2 rounded-full">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs text-emerald-700 font-medium">Geoloc. verifiee - sur site</span>
-            </div>
-          </div>
-        )}
-
-        {!isClockedIn && (
-          <div className="mt-8 text-center">
-            <div className="flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-full">
-              <MapPin size={14} className="text-blue-500" />
-              <span className="text-xs text-blue-600 font-medium">La geolocalisation sera verifiee</span>
-            </div>
-            {debugInfo && (
-              <div className="mt-4 p-3 bg-gray-800 text-green-400 rounded-xl text-xs font-mono break-all max-w-xs">
-                {debugInfo}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
