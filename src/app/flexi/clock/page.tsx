@@ -198,8 +198,8 @@ export default function FlexiClockPage() {
           onClick={handleClock}
           disabled={clocking}
           className={`w-48 h-48 rounded-full flex flex-col items-center justify-center transition-all duration-300 shadow-lg active:scale-95 disabled:opacity-50 ${isClockedIn
-            ? 'bg-gradient-to-br from-red-500 to-red-600 shadow-red-200 text-white'
-            : 'bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-emerald-200 text-white'
+              ? 'bg-gradient-to-br from-red-500 to-red-600 shadow-red-200 text-white'
+              : 'bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-emerald-200 text-white'
             }`}
         >
           <span className="text-4xl mb-1">{isClockedIn ? '👋' : '✅'}</span>
@@ -238,8 +238,8 @@ export default function FlexiClockPage() {
               <div className="mt-4 p-3 bg-gray-800 text-green-400 rounded-xl text-[10px] font-mono break-all max-w-xs">
                 {debugInfo}
               </div>
-            
-            </div>
+            )}
+          </div>
           </div>
         )}
     </div >
