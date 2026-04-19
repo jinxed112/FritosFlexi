@@ -3,8 +3,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { clockIn, clockOut } from '@/lib/actions/clock';
+import { checkIndependentConvention } from '@/lib/actions/convention';
 import { getCurrentPosition } from '@/utils/geo';
 import { MapPin, AlertCircle } from 'lucide-react';
+import IndependentConventionModal from '@/components/flexi/IndependentConventionModal';
 
 export default function FlexiClockPage() {
   const [shift, setShift] = useState<any>(null);
@@ -13,6 +15,12 @@ export default function FlexiClockPage() {
   const [loading, setLoading] = useState(true);
   const [clocking, setClocking] = useState(false);
   const [error, setError] = useState('');
+
+  // Convention indépendant
+  const [showConvention, setShowConvention] = useState(false);
+  const [conventionData, setConventionData] = useState<any>(null);
+  const [pendingPosition, setPendingPosition] = useState<GeolocationCoordinates | null>(null);
+
   const supabase = createClient();
 
   const fetchTodayShift = useCallback(async () => {
@@ -39,7 +47,6 @@ export default function FlexiClockPage() {
     if (shifts && shifts.length > 0) {
       setShift(shifts[0]);
 
-      // Check for existing time entry
       const { data: entries } = await supabase
         .from('time_entries')
         .select('*')
@@ -74,6 +81,15 @@ export default function FlexiClockPage() {
     return `${h}:${m}:${sec}`;
   };
 
+  const doClockIn = async (latitude: number, longitude: number) => {
+    const result = await clockIn({ shift_id: shift.id, latitude, longitude });
+    if ('error' in result && result.error) {
+      setError(result.error);
+    } else {
+      setTimeEntry(result.data);
+    }
+  };
+
   const handleClock = async () => {
     if (!shift) return;
     setClocking(true);
@@ -83,24 +99,57 @@ export default function FlexiClockPage() {
       const position = await getCurrentPosition();
       const { latitude, longitude } = position.coords;
 
-      const result = timeEntry
-        ? await clockOut({ shift_id: shift.id, latitude, longitude })
-        : await clockIn({ shift_id: shift.id, latitude, longitude });
-
-      if ('error' in result && result.error) {
-        setError(result.error);
-      } else {
-        if (timeEntry) {
+      if (timeEntry) {
+        // Clock OUT — pas de vérification convention
+        const result = await clockOut({ shift_id: shift.id, latitude, longitude });
+        if ('error' in result && result.error) {
+          setError(result.error);
+        } else {
           setTimeEntry(null);
           setElapsed(0);
-        } else {
-          setTimeEntry(result.data);
         }
+      } else {
+        // Clock IN — vérifier si convention indépendant nécessaire
+        const check = await checkIndependentConvention(shift.id);
+
+        if (check.needed && check.conventionData) {
+          // Stocker la position et afficher le modal
+          setPendingPosition(position.coords);
+          setConventionData(check.conventionData);
+          setShowConvention(true);
+          setClocking(false);
+          return;
+        }
+
+        // Pas de convention nécessaire (flexi/student/other ou déjà signée)
+        await doClockIn(latitude, longitude);
       }
     } catch (err: any) {
       setError(err.message || 'Erreur de géolocalisation');
     }
     setClocking(false);
+  };
+
+  // Appelé après validation de la convention
+  const handleConventionSigned = async () => {
+    setShowConvention(false);
+    setConventionData(null);
+
+    if (!pendingPosition) {
+      setError('Position GPS perdue, réessayez');
+      return;
+    }
+
+    setClocking(true);
+    await doClockIn(pendingPosition.latitude, pendingPosition.longitude);
+    setPendingPosition(null);
+    setClocking(false);
+  };
+
+  const handleConventionCancel = () => {
+    setShowConvention(false);
+    setConventionData(null);
+    setPendingPosition(null);
   };
 
   if (loading) {
@@ -124,57 +173,68 @@ export default function FlexiClockPage() {
   const isClockedIn = !!timeEntry;
 
   return (
-    <div className="flex flex-col items-center pt-6">
-      <div className="text-sm font-medium text-gray-500 mb-1">
-        {shift.locations?.name}
+    <>
+      {/* Modal convention indépendant */}
+      {showConvention && conventionData && (
+        <IndependentConventionModal
+          conventionData={conventionData}
+          onSigned={handleConventionSigned}
+          onCancel={handleConventionCancel}
+        />
+      )}
+
+      <div className="flex flex-col items-center pt-6">
+        <div className="text-sm font-medium text-gray-500 mb-1">
+          {shift.locations?.name}
+        </div>
+        <div className="text-xs text-gray-400 mb-8">
+          Shift : {shift.start_time.slice(0, 5)} – {shift.end_time.slice(0, 5)}
+        </div>
+
+        <button
+          onClick={handleClock}
+          disabled={clocking}
+          className={`w-48 h-48 rounded-full flex flex-col items-center justify-center transition-all duration-300 shadow-lg active:scale-95 disabled:opacity-50 ${
+            isClockedIn
+              ? 'bg-gradient-to-br from-red-500 to-red-600 shadow-red-200 text-white'
+              : 'bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-emerald-200 text-white'
+          }`}
+        >
+          <span className="text-4xl mb-1">{isClockedIn ? '👋' : '✅'}</span>
+          <span className="text-lg font-bold">
+            {clocking ? '...' : isClockedIn ? 'DÉPART' : 'ARRIVÉE'}
+          </span>
+        </button>
+
+        {error && (
+          <div className="mt-6 flex items-center gap-2 bg-red-50 text-red-600 px-4 py-2 rounded-xl text-sm max-w-xs text-center">
+            <AlertCircle size={16} />
+            {error}
+          </div>
+        )}
+
+        {isClockedIn && (
+          <div className="mt-8 text-center">
+            <div className="text-3xl font-mono font-bold text-gray-800 tracking-wider">
+              {formatElapsed(elapsed)}
+            </div>
+            <p className="text-xs text-gray-400 mt-1">Temps de travail en cours</p>
+            <div className="mt-4 flex items-center gap-2 bg-emerald-50 px-4 py-2 rounded-full">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-xs text-emerald-700 font-medium">Géoloc. vérifiée — sur site</span>
+            </div>
+          </div>
+        )}
+
+        {!isClockedIn && (
+          <div className="mt-8 text-center">
+            <div className="flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-full">
+              <MapPin size={14} className="text-blue-500" />
+              <span className="text-xs text-blue-600 font-medium">La géolocalisation sera vérifiée</span>
+            </div>
+          </div>
+        )}
       </div>
-      <div className="text-xs text-gray-400 mb-8">
-        Shift : {shift.start_time.slice(0, 5)} – {shift.end_time.slice(0, 5)}
-      </div>
-
-      <button
-        onClick={handleClock}
-        disabled={clocking}
-        className={`w-48 h-48 rounded-full flex flex-col items-center justify-center transition-all duration-300 shadow-lg active:scale-95 disabled:opacity-50 ${
-          isClockedIn
-            ? 'bg-gradient-to-br from-red-500 to-red-600 shadow-red-200 text-white'
-            : 'bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-emerald-200 text-white'
-        }`}
-      >
-        <span className="text-4xl mb-1">{isClockedIn ? '👋' : '✅'}</span>
-        <span className="text-lg font-bold">
-          {clocking ? '...' : isClockedIn ? 'DÉPART' : 'ARRIVÉE'}
-        </span>
-      </button>
-
-      {error && (
-        <div className="mt-6 flex items-center gap-2 bg-red-50 text-red-600 px-4 py-2 rounded-xl text-sm max-w-xs text-center">
-          <AlertCircle size={16} />
-          {error}
-        </div>
-      )}
-
-      {isClockedIn && (
-        <div className="mt-8 text-center">
-          <div className="text-3xl font-mono font-bold text-gray-800 tracking-wider">
-            {formatElapsed(elapsed)}
-          </div>
-          <p className="text-xs text-gray-400 mt-1">Temps de travail en cours</p>
-          <div className="mt-4 flex items-center gap-2 bg-emerald-50 px-4 py-2 rounded-full">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs text-emerald-700 font-medium">Géoloc. vérifiée — sur site</span>
-          </div>
-        </div>
-      )}
-
-      {!isClockedIn && (
-        <div className="mt-8 text-center">
-          <div className="flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-full">
-            <MapPin size={14} className="text-blue-500" />
-            <span className="text-xs text-blue-600 font-medium">La géolocalisation sera vérifiée</span>
-          </div>
-        </div>
-      )}
-    </div>
+    </>
   );
 }

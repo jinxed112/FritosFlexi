@@ -75,6 +75,7 @@ export function validateEmail(email: string): boolean {
 
 /**
  * Check if all required profile fields are filled
+ * Logique différente pour les indépendants (pas de NISS ni contrat-cadre, mais vat_number requis)
  */
 export function isProfileComplete(worker: {
   first_name?: string;
@@ -89,18 +90,26 @@ export function isProfileComplete(worker: {
   iban?: string | null;
   status?: string | null;
   framework_contract_date?: string | null;
+  vat_number?: string | null;
 }): boolean {
-  return !!(
+  const base = !!(
     worker.first_name?.trim() &&
     worker.last_name?.trim() &&
     worker.date_of_birth &&
-    worker.niss?.trim() &&
     worker.address_street?.trim() &&
     worker.address_city?.trim() &&
     worker.address_zip?.trim() &&
     worker.phone?.trim() &&
     worker.email?.trim() &&
-    worker.iban?.trim() &&
+    worker.iban?.trim()
+  );
+
+  if (worker.status === 'independent') {
+    return base && !!worker.vat_number?.trim();
+  }
+
+  return base && !!(
+    worker.niss?.trim() &&
     worker.status &&
     worker.framework_contract_date
   );
@@ -108,8 +117,24 @@ export function isProfileComplete(worker: {
 
 /**
  * Count completed profile fields (for progress bar)
+ * Logique différente pour les indépendants
  */
 export function profileCompletionCount(worker: Record<string, unknown>): { done: number; total: number } {
+  if (worker.status === 'independent') {
+    const requiredFields = [
+      'first_name', 'last_name', 'date_of_birth',
+      'address_street', 'address_city', 'address_zip',
+      'phone', 'email', 'iban',
+      'vat_number',
+    ];
+    const done = requiredFields.filter((f) => {
+      const v = worker[f];
+      return v !== null && v !== undefined && v !== '';
+    }).length;
+    return { done, total: requiredFields.length };
+  }
+
+  // Logique originale pour flexi/student/pensioner/employee/other
   const requiredFields = [
     'first_name', 'last_name', 'date_of_birth', 'gender', 'niss',
     'birth_place', 'birth_country', 'nationality', 'language', 'education_level',
