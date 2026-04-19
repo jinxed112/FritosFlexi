@@ -298,7 +298,7 @@ async function generateConventionPDF(
 
         // Employeur à gauche
         page.drawText('Michele Terrana', { x: M + 10, y, size: 9, font, color: dark });
-        page.drawText('Administrateur, S.B.U.R.G.S. SRL', { x: M + 10, y - 12, size: 8, font: fontItalic, color: gray });
+        page.drawText('Administrateur, S.B.U.R.G.S. SRL', { x: M + 10, y: y - 12, size: 8, font: fontItalic, color: gray });
 
         // Prestataire à droite avec signature
         page.drawText('Lu et approuvé', { x: M + colW + 30, y, size: 8, font: fontItalic, color: dark });
@@ -320,8 +320,8 @@ async function generateConventionPDF(
 
   // Lignes de signature
   y -= 5;
-  page.drawLine({ start: { x: M }, end: { x: M + colW }, thickness: 0.5, color: gray, y });
-  page.drawLine({ start: { x: M + colW + 20 }, end: { x: W - M }, thickness: 0.5, color: gray, y });
+  page.drawLine({ start: { x: M, y }, end: { x: M + colW, y }, thickness: 0.5, color: gray });
+  page.drawLine({ start: { x: M + colW + 20, y }, end: { x: W - M, y }, thickness: 0.5, color: gray });
   y -= 13;
   page.drawText('Michele Terrana', { x: M, y, size: 9, font, color: dark });
   page.drawText(`${worker.first_name} ${worker.last_name}`, { x: M + colW + 20, y, size: 9, font, color: dark });
