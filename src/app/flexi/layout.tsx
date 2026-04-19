@@ -27,7 +27,7 @@ export default async function FlexiLayout({
     return <>{children}</>;
   }
 
-  const needsContract = !worker.framework_contract_date;
+  const needsContract = !worker.framework_contract_date && worker.status !== 'independent';
 
   return (
     <div className="max-w-md mx-auto bg-gray-50 min-h-screen flex flex-col">
