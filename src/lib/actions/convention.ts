@@ -601,7 +601,7 @@ export async function signIndependentConvention(data: {
     }
 
     // Insérer le record
-    const { data: convention, error } = await supabase
+    const { data: convention, error } = await admin
       .from('independent_conventions')
       .insert({
         shift_id:          data.shiftId,
