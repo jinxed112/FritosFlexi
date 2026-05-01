@@ -86,14 +86,6 @@ export default function FlexiClockPage() {
   const generateConventionInBackground = async (latitude: number, longitude: number) => {
     if (!worker || !shift) return;
 
-    // Verifier si convention deja generee
-    const { data: existing } = await supabase
-      .from('independent_conventions')
-      .select('id')
-      .eq('shift_id', shift.id)
-      .maybeSingle();
-
-    if (existing) return;
 
     const [sh, sm] = shift.start_time.split(':').map(Number);
     const [eh, em] = shift.end_time.split(':').map(Number);
