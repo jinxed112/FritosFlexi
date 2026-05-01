@@ -539,14 +539,10 @@ export async function signIndependentConvention(data: {
   geoLng?: number;
   userAgent?: string;
 }) {
-  const supabase = createClient();
-  const admin    = createAdminClient();
+  const admin = createAdminClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: 'Non connecté' };
-
-  // Vérifier si déjà générée
-  const { data: existing } = await supabase
+  // Verifier si deja generee - admin client pour eviter problemes session mobile
+  const { data: existing } = await admin
     .from('independent_conventions')
     .select('id, convention_pdf_url')
     .eq('shift_id', data.shiftId)
@@ -584,8 +580,7 @@ export async function signIndependentConvention(data: {
       dateStr,
       ip,
       method: 'portail',
-      userId: user.id,
-      email: user.email || undefined,
+      userId: data.workerId,
       workerId: data.workerId,
       geoLat: data.geoLat,
       geoLng: data.geoLng,
