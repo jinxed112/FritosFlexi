@@ -102,15 +102,15 @@ async function generateConventionPDF(
     x: M, y, size: 14, font: fontBold, color: dark,
   });
   y -= 16;
-  page.drawText('Travailleur indépendant', {
+  page.drawText('Travailleur independant', {
     x: M, y, size: 11, font: fontItalic, color: gray,
   });
   y -= 30;
 
   // ---- ARTICLE 1 — PARTIES ----
-  page.drawText('ARTICLE 1 — PARTIES', { x: M, y, size: 10, font: fontBold, color: dark });
+  page.drawText('ARTICLE 1 - PARTIES', { x: M, y, size: 10, font: fontBold, color: dark });
   y -= 16;
-  page.drawText('Le présent contrat est conclu entre :', { x: M, y, size: 9, font, color: gray });
+  page.drawText('Le present contrat est conclu entre :', { x: M, y, size: 9, font, color: gray });
   y -= 18;
 
   // Donneur d'ordre
@@ -269,11 +269,11 @@ async function generateConventionPDF(
   page = spSig.page; y = spSig.y;
 
   y -= 10;
-  page.drawText(`Fait en deux exemplaires originaux, à ${location?.name?.includes('Boussu') ? 'Boussu' : 'Jurbise'}, le ${dateShort}.`, {
+  page.drawText(`Fait en deux exemplaires originaux, a ${location?.name?.includes('Boussu') ? 'Boussu' : 'Jurbise'}, le ${dateShort}.`, {
     x: M, y, size: 10, font, color: dark,
   });
   y -= 8;
-  page.drawText('Chaque partie reconnaît avoir reçu un exemplaire signé.', {
+  page.drawText('Chaque partie reconnait avoir recu un exemplaire signe.', {
     x: M, y, size: 8, font: fontItalic, color: light,
   });
   y -= 25;
@@ -301,7 +301,7 @@ async function generateConventionPDF(
         page.drawText('Administrateur, S.B.U.R.G.S. SRL', { x: M + 10, y: y - 12, size: 8, font: fontItalic, color: gray });
 
         // Prestataire à droite avec signature
-        page.drawText('Lu et approuvé', { x: M + colW + 30, y, size: 8, font: fontItalic, color: dark });
+        page.drawText('Lu et approuve', { x: M + colW + 30, y, size: 8, font: fontItalic, color: dark });
         y -= sigH + 5;
         page.drawImage(sigImage, { x: M + colW + 30, y, width: sigW, height: sigH });
         y -= 10;
@@ -314,7 +314,7 @@ async function generateConventionPDF(
 
   if (!sigEmbedded) {
     page.drawText('Michele Terrana, Administrateur', { x: M + 10, y, size: 9, font, color: dark });
-    page.drawText('(Signature électronique — voir preuve ci-dessous)', { x: M + colW + 20, y, size: 8, font: fontItalic, color: light });
+    page.drawText('(Signature electronique - voir preuve ci-dessous)', { x: M + colW + 20, y, size: 8, font: fontItalic, color: light });
     y -= 15;
   }
 
@@ -337,7 +337,7 @@ async function generateConventionPDF(
     borderWidth: 0.5,
   });
   y -= 8;
-  page.drawText('⚠ AVERTISSEMENT', { x: M + 8, y, size: 8, font: fontBold, color: orange });
+  page.drawText('! AVERTISSEMENT', { x: M + 8, y, size: 8, font: fontBold, color: orange });
   y -= 12;
   y = drawWrapped(page,
     "La présente convention ne dispense pas d'une vérification préalable du statut réel du prestataire. En cas de requalification en contrat de travail par l'ONSS ou un tribunal (lien de subordination avéré), le Donneur d'ordre pourrait être redevable des cotisations sociales patronales et ouvrières, majorées d'amendes.",
@@ -348,7 +348,7 @@ async function generateConventionPDF(
   const spProof = ensureSpace(pdf, y, 100, W, H, M);
   page = spProof.page; y = spProof.y;
   y -= 20;
-  page.drawText('Preuve de signature électronique', { x: M, y, size: 9, font: fontBold, color: dark });
+  page.drawText('Preuve de signature electronique', { x: M, y, size: 9, font: fontBold, color: dark });
   y -= 14;
   const proofLines = [
     `Horodatage : ${signatureInfo.dateStr}`,
@@ -368,10 +368,10 @@ async function generateConventionPDF(
   // ---- FOOTER sur toutes les pages ----
   const allPages = pdf.getPages();
   allPages.forEach((p: any, i: number) => {
-    p.drawText(`Convention de prestation — ${worker.first_name} ${worker.last_name} — ${dateShort} — Page ${i + 1}/${allPages.length}`, {
+    p.drawText(`Convention de prestation - ${worker.first_name} ${worker.last_name} - ${dateShort} - Page ${i + 1}/${allPages.length}`, {
       x: M, y: 25, size: 7, font: fontItalic, color: rgb(0.6, 0.6, 0.6),
     });
-    p.drawText('S.B.U.R.G.S. SRL (MDjambo) — BE 1009.237.290', {
+    p.drawText('S.B.U.R.G.S. SRL (MDjambo) - BE 1009.237.290', {
       x: W - M - 160, y: 25, size: 7, font: fontItalic, color: rgb(0.6, 0.6, 0.6),
     });
   });
