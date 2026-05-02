@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
         personId,
         workerId,
         payrollGroupContext,
-        taskNumber: "01",
+        taskNumber: "02",
         includeEssData: false,
         illnessWorkAccidentPeriods: [],
         timesheetMonth: [],
