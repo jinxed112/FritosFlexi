@@ -110,9 +110,13 @@ async function postDeclaration(payload: DimonaInPayload | DimonaCancelPayload | 
   throw new Error(`Dimona API error ${response.status}: ${text}`);
 }
 
-async function pollDeclarationResult(declarationId: number): Promise<DimonaDeclarationResponse> {
+async function pollDeclarationResult(
+  declarationId: number,
+  maxPollTimeMsOverride?: number,
+): Promise<DimonaDeclarationResponse> {
   const token = await getToken();
-  const { initialWaitMs, pollIntervalMs, maxPollTimeMs } = DIMONA_CONFIG.retry;
+  const { initialWaitMs, pollIntervalMs } = DIMONA_CONFIG.retry;
+  const maxPollTimeMs = maxPollTimeMsOverride ?? DIMONA_CONFIG.retry.maxPollTimeMs;
   await sleep(initialWaitMs);
   const startTime = Date.now();
   while (Date.now() - startTime < maxPollTimeMs) {
@@ -147,13 +151,13 @@ export async function sendDimonaIn(
         startDate: date,
         endDate: date,
         plannedHoursNumber: calcHours(startTime, endTime),
-        features: { workerType, jointCommissionNumber: 'XXX' },  // STU: CP 'XXX' (obligatoire ONSS)
+        features: { workerType },  // STU: jointCommissionNumber OMIS (rejet ONSS 90374-349 si présent)
       } : {
         startDate: date,
         startHour: formatHour(startTime),
         endDate: date,
         endHour: formatHour(endTime),
-        features: { workerType, jointCommissionNumber: 'XXX' },  // FLX: CP 'XXX' (obligatoire ONSS)
+        features: { workerType, jointCommissionNumber: 'XXX' },  // FLX: 'XXX' = convention ONSS Horeca flexi
       },
     };
     const declarationId = await postDeclaration(payload);
@@ -174,7 +178,10 @@ export async function sendDimonaCancel(periodId: number): Promise<DimonaResult> 
   try {
     const payload: DimonaCancelPayload = { dimonaCancel: { periodId } };
     const declarationId = await postDeclaration(payload);
-    const result = await pollDeclarationResult(declarationId);
+    // CANCEL polling : ONSS prend souvent plus de 30s à confirmer un cancel.
+    // Override à 90s pour éviter les `timeout after 30000ms` observés en prod
+    // (où l'opération côté ONSS aboutit mais on n'attend pas la confirmation).
+    const result = await pollDeclarationResult(declarationId, 90_000);
     return {
       success: result.declarationStatus.result === 'A' || result.declarationStatus.result === 'W',
       declarationId,
