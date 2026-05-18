@@ -167,7 +167,9 @@ export async function POST(req: NextRequest) {
     },
   };
 
-  console.log('SmartSalary payload:', JSON.stringify(payload, null, 2));
+  // SECURITY: ne pas logger le payload — il contient NISS, IBAN et date de naissance (RGPD).
+  // Pour debug, logger uniquement des métadonnées non-identifiantes :
+  console.log('SmartSalary payload prepared (NISS=***, fields=' + Object.keys(payload).length + ')');
 
   try {
     const res = await fetch(SS_API, {

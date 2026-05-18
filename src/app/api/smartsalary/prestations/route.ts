@@ -2,8 +2,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+// SECURITY: restreindre à l'origine Partena (alignement avec confirm/route.ts).
+// Avant : '*' permettait à tout site web d'exfiltrer les prestations workers
+// via le navigateur d'un manager connecté (même si x-fritos-auth requis).
 const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': 'https://my.partena-professional.be',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-fritos-auth',
 };

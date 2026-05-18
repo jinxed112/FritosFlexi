@@ -6,6 +6,26 @@ import type { CreateShiftInput } from '@/types';
 import { apiCancelDimona } from './dimona';
 
 /**
+ * SECURITY: vérifie que l'utilisateur courant est un manager.
+ * À utiliser en tête des Server Actions de mutation côté admin
+ * (cancelShift, updateShift, deleteShift) — sans ça, n'importe quel worker
+ * authentifié pouvait techniquement les appeler et muter des shifts
+ * (planning d'autres workers, déclenchement cancel Dimona ONSS, etc.).
+ *
+ * Pattern aligné avec contract.ts:859-860 qui fait déjà cette vérif.
+ */
+async function assertManager() {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Non connecté' };
+  // Pattern défensif : check role ou fallback email admin (cf. api/dimona/route.ts:29
+  // qui utilise le même fallback). Évite de bloquer Michele si user_metadata vide.
+  const isManager = user.user_metadata?.role === 'manager' || user.email === 'admin@mdjambo.be';
+  if (!isManager) return { error: 'Accès refusé : action réservée aux managers' };
+  return null;
+}
+
+/**
  * Create shifts on multiple days at once (manager action)
  */
 export async function createMultiShifts(input: {
@@ -161,6 +181,9 @@ export async function updateShift(shiftId: string, input: {
   notes?: string;
   status?: string;
 }) {
+  const authError = await assertManager();
+  if (authError) return authError;
+
   const supabase = createClient();
 
   const { error } = await supabase
@@ -184,6 +207,9 @@ export async function updateShift(shiftId: string, input: {
  * l'IN — il faut d'abord cancel). L'utilisateur doit passer par cancelShift().
  */
 export async function deleteShift(shiftId: string) {
+  const authError = await assertManager();
+  if (authError) return authError;
+
   const supabase = createClient();
 
   const { data: dimonaOk } = await supabase
@@ -231,6 +257,9 @@ export async function cancelShift(
   shiftId: string,
   reason: 'worker_cancelled' | 'no_show' | 'manager_cancelled' = 'worker_cancelled',
 ) {
+  const authError = await assertManager();
+  if (authError) return authError;
+
   const supabase = createClient();
 
   const { data: dimonas } = await supabase
