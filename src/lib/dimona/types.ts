@@ -21,11 +21,15 @@ export interface DimonaWorker {
 }
 
 export interface DimonaFeatures {
-  workerType: 'FLX';
-  jointCommissionNumber: 'XXX'; // Convention Dimona for horeca flexi
+  workerType: 'FLX' | 'STU';
+  // 'XXX' = convention Dimona obligatoire pour Horeca flexi (FLX).
+  // OMIS pour STU — l'ONSS rejette avec errorId 90374-349 si présent
+  // (Incompatibilité commission paritaire / type travailleur).
+  jointCommissionNumber?: 'XXX';
 }
 
-export interface DimonaInPayload {
+// FLX déclare des heures précises (startHour/endHour).
+export interface DimonaInPayloadFlx {
   employer: DimonaEmployer;
   worker: DimonaWorker;
   dimonaIn: {
@@ -36,6 +40,21 @@ export interface DimonaInPayload {
     features: DimonaFeatures;
   };
 }
+
+// STU déclare un nombre d'heures planifiées (régime étudiant — pas d'horaire précis).
+// L'ONSS rejette avec 01135-001/00777-005/00778-005 si STU envoie startHour/endHour.
+export interface DimonaInPayloadStu {
+  employer: DimonaEmployer;
+  worker: DimonaWorker;
+  dimonaIn: {
+    startDate: string;
+    endDate: string;
+    plannedHoursNumber: number;
+    features: DimonaFeatures;
+  };
+}
+
+export type DimonaInPayload = DimonaInPayloadFlx | DimonaInPayloadStu;
 
 export interface DimonaCancelPayload {
   dimonaCancel: {

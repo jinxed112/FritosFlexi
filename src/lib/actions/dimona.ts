@@ -99,6 +99,47 @@ export async function apiDeclareDimona(dimonaId: string) {
     return { error: 'Shift non trouvé' };
   }
 
+  // ✅ Idempotence : cette déclaration a-t-elle déjà été acceptée par l'ONSS ?
+  // Évite l'erreur ONSS 90373-333 "Période Dimona en double" sur double-clic ou re-essai.
+  if (dimona.status === 'ok' && dimona.dimona_period_id) {
+    return {
+      success: true,
+      periodId: parseInt(dimona.dimona_period_id),
+      alreadyDeclared: true,
+      notes: `Déjà déclarée (periodId ${dimona.dimona_period_id})`,
+    };
+  }
+
+  // ✅ Idempotence cross-shift : une autre Dimona OK existe-t-elle pour le même shift ?
+  // (ex : le manager a créé 2 records dimona_declarations pour le même shift par erreur)
+  const { data: existingOk } = await supabase
+    .from('dimona_declarations')
+    .select('id, dimona_period_id, responded_at')
+    .eq('shift_id', dimona.shift_id)
+    .eq('declaration_type', 'IN')
+    .eq('status', 'ok')
+    .not('dimona_period_id', 'is', null)
+    .neq('id', dimonaId)
+    .maybeSingle();
+
+  if (existingOk?.dimona_period_id) {
+    await supabase
+      .from('dimona_declarations')
+      .update({
+        status: 'ok',
+        dimona_period_id: existingOk.dimona_period_id,
+        responded_at: new Date().toISOString(),
+        notes: `Idempotence: réutilise periodId ${existingOk.dimona_period_id} de la déclaration ${existingOk.id}`,
+      })
+      .eq('id', dimonaId);
+    revalidatePath('/dashboard/flexis/dimona');
+    return {
+      success: true,
+      periodId: parseInt(existingOk.dimona_period_id),
+      alreadyDeclared: true,
+    };
+  }
+
   // ✅ Fix: worker_type basé sur le statut réel du worker, pas hardcodé FLX
   const workerType: 'FLX' | 'STU' = dimona.flexi_workers.status === 'student' ? 'STU' : 'FLX';
 
