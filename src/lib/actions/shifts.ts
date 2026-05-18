@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import type { CreateShiftInput } from '@/types';
+import { apiCancelDimona } from './dimona';
 
 /**
  * Create shifts on multiple days at once (manager action)
@@ -177,9 +178,28 @@ export async function updateShift(shiftId: string, input: {
 
 /**
  * Delete a shift permanently (manager action)
+ *
+ * Bloque le delete si une Dimona déclarée OK existe pour préserver la cohérence
+ * avec ONSS (on ne peut pas supprimer en silence un shift dont l'ONSS a accepté
+ * l'IN — il faut d'abord cancel). L'utilisateur doit passer par cancelShift().
  */
 export async function deleteShift(shiftId: string) {
   const supabase = createClient();
+
+  const { data: dimonaOk } = await supabase
+    .from('dimona_declarations')
+    .select('id')
+    .eq('shift_id', shiftId)
+    .eq('declaration_type', 'IN')
+    .eq('status', 'ok')
+    .not('dimona_period_id', 'is', null)
+    .maybeSingle();
+
+  if (dimonaOk) {
+    return {
+      error: 'Impossible de supprimer ce shift : une Dimona a déjà été déclarée à l\'ONSS. Utilise "Annuler" pour annuler la Dimona côté ONSS d\'abord.',
+    };
+  }
 
   const { error } = await supabase
     .from('shifts')
@@ -194,20 +214,79 @@ export async function deleteShift(shiftId: string) {
 }
 
 /**
- * Cancel a shift (manager action)
+ * Cancel a shift (manager action) — cascade automatique sur Dimona
+ *
+ * Comportement selon l'état des `dimona_declarations` liées :
+ * - Dimona `ok` avec periodId : POST CANCEL ONSS via `apiCancelDimona`
+ *   (qui met aussi `shifts.status='cancelled'` en cas de succès)
+ * - Dimona `pending`/`ready`/`sent` sans periodId (pas encore acceptée ONSS) :
+ *   soft-cancel en DB → empêche le batch declaration de la POST plus tard
+ * - Pas de Dimona : juste update `shifts.status='cancelled'`
+ *
+ * Si une cancel ONSS échoue, le shift n'est PAS marqué cancelled (préserve
+ * la cohérence ONSS ↔ DB). Le manager est notifié + doit régulariser via
+ * portail ONSS avant de réessayer.
  */
-export async function cancelShift(shiftId: string) {
+export async function cancelShift(
+  shiftId: string,
+  reason: 'worker_cancelled' | 'no_show' | 'manager_cancelled' = 'worker_cancelled',
+) {
   const supabase = createClient();
 
-  const { error } = await supabase
-    .from('shifts')
-    .update({ status: 'cancelled' })
-    .eq('id', shiftId);
+  const { data: dimonas } = await supabase
+    .from('dimona_declarations')
+    .select('id, status, dimona_period_id')
+    .eq('shift_id', shiftId)
+    .eq('declaration_type', 'IN');
 
-  if (error) return { error: error.message };
+  let dimonaCancelledOnss = false;
+  let dimonaPendingCleared = 0;
+
+  for (const dimona of dimonas || []) {
+    if (dimona.status === 'ok' && dimona.dimona_period_id) {
+      // Dimona déclarée à l'ONSS → cancel API
+      const cancelResult = await apiCancelDimona(dimona.id, reason);
+      if (!cancelResult.success) {
+        return {
+          error: `Annulation Dimona ONSS échouée : ${cancelResult.error}. Shift NON annulé pour préserver la cohérence ONSS. Régularise via le portail ONSS puis réessaie.`,
+        };
+      }
+      dimonaCancelledOnss = true;
+      // apiCancelDimona met déjà shifts.status='cancelled' en cas de succès
+    } else if (['pending', 'ready', 'sent'].includes(dimona.status)) {
+      // Dimona pas encore acceptée par l'ONSS → soft-cancel en DB
+      // (le batch declaration ne la POSTera pas si status='cancelled')
+      await supabase
+        .from('dimona_declarations')
+        .update({
+          status: 'cancelled',
+          notes: `Pré-annulée (shift annulé avant déclaration ONSS) : ${reason}`,
+        })
+        .eq('id', dimona.id);
+      dimonaPendingCleared++;
+    }
+  }
+
+  // Si apiCancelDimona n'a pas mis le shift à 'cancelled', on le fait nous-mêmes
+  if (!dimonaCancelledOnss) {
+    const { error } = await supabase
+      .from('shifts')
+      .update({ status: 'cancelled' })
+      .eq('id', shiftId);
+
+    if (error) return { error: error.message };
+  }
 
   revalidatePath('/dashboard/flexis/planning');
-  return { success: true };
+  revalidatePath('/dashboard/flexis/dimona');
+  revalidatePath('/flexi/missions');
+  revalidatePath('/flexi/planning');
+
+  return {
+    success: true,
+    dimonaCancelledOnss,
+    dimonaPendingCleared,
+  };
 }
 
 /**
