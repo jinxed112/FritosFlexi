@@ -151,7 +151,7 @@ export async function sendDimonaIn(
         startDate: date,
         endDate: date,
         plannedHoursNumber: calcHours(startTime, endTime),
-        features: { workerType, jointCommissionNumber: '302' },  // STU Horeca: vrai numéro CP 302 (NE PAS mettre 'XXX' — réservé FLX)
+        features: { workerType, jointCommissionNumber: 'XXX' },  // STU Horeca: 'XXX' (validé en prod par Michele cf. commit eae35ff "valeur ONSS correcte")
       } : {
         startDate: date,
         startHour: formatHour(startTime),

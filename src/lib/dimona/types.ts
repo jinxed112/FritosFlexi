@@ -22,13 +22,16 @@ export interface DimonaWorker {
 
 export interface DimonaFeatures {
   workerType: 'FLX' | 'STU';
-  // Obligatoire pour FLX et STU, avec une valeur différente selon le type :
-  // - FLX Horeca → 'XXX' (convention spéciale ONSS pour flexi Horeca)
-  // - STU Horeca → '302' (vrai numéro de commission paritaire Horeca CP 302)
-  // Omettre le champ déclenche `Bad Request: Features required`.
-  // Mettre 'XXX' pour STU déclenche errorId 90374-349 (incompatibilité CP/type).
-  // Source : doc ONSS REST v2 (https://www.socialsecurity.be/site_fr/employer/applics/dimona/documents/pdf/documentation-fonctionnelle-restv2_F.pdf) — exemple "jointCommissionNumber: '124'" pour CP 124 construction ; transposé '302' pour Horeca.
-  jointCommissionNumber: 'XXX' | '302';
+  // 'XXX' pour FLX ET STU Horeca — validé en prod après itérations de Michele.
+  // Historique (commits sur ce fichier) : '302' essayé → ONSS rejette 90374-349.
+  // Omettre essayé → ONSS rejette `Bad Request: Features required`.
+  // 'XXX' = la convention ONSS qui marche pour Horeca (CP 302), validée empiriquement
+  // par les déclarations STU OK d'avril 2026 (cf. dimona_declarations DB).
+  // NE PAS MODIFIER sans avoir vérifié :
+  // (a) `git log -- src/lib/dimona/service.ts` qui montre 5+ tentatives échouées
+  // (b) la doc ONSS REST v2 officielle
+  // (c) un test sur un shift STU/FLX réel en prod
+  jointCommissionNumber: 'XXX';
 }
 
 // FLX déclare des heures précises (startHour/endHour).
