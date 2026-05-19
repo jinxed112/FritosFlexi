@@ -76,18 +76,33 @@ export async function apiDeclareDimona(dimonaId: string) {
   const supabase = createClient();
 
   // ✅ Fix: inclure le statut du worker pour déterminer FLX/STU
+  // ✅ Inclure aussi locations.dimona_required pour skip événements
   const { data: dimona, error } = await supabase
     .from('dimona_declarations')
     .select(`
       *,
       flexi_workers(niss, first_name, last_name, status),
-      shifts(date, start_time, end_time)
+      shifts(date, start_time, end_time),
+      locations(id, dimona_required)
     `)
     .eq('id', dimonaId)
     .single();
 
   if (error || !dimona) {
     return { error: `Dimona not found: ${error?.message}` };
+  }
+
+  // ✅ Skip Dimona auto pour locations événementielles (stand Doudou, etc.)
+  if ((dimona.locations as any)?.dimona_required === false) {
+    await supabase
+      .from('dimona_declarations')
+      .update({
+        status: 'cancelled',
+        notes: 'Location événementielle (dimona_required=false) — pas de déclaration ONSS auto',
+        responded_at: new Date().toISOString(),
+      })
+      .eq('id', dimonaId);
+    return { success: true, skipped: true, reason: 'location_dimona_not_required' };
   }
 
   if (!dimona.flexi_workers?.niss) {

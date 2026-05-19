@@ -19,7 +19,7 @@ export async function declareDimonaIn(shiftId: string): Promise<DimonaResult> {
     .select(`
       id, date, start_time, end_time, location_id, worker_id, status,
       flexi_workers!inner(id, niss, first_name, last_name, status),
-      locations!inner(id, name)
+      locations!inner(id, name, dimona_required)
     `)
     .eq('id', shiftId)
     .single();
@@ -27,6 +27,19 @@ export async function declareDimonaIn(shiftId: string): Promise<DimonaResult> {
   if (shiftErr || !shift) return { success: false, error: `Shift not found: ${shiftErr?.message}` };
   if (!shift.flexi_workers?.niss) return { success: false, error: `Worker ${shift.flexi_workers?.first_name} ${shift.flexi_workers?.last_name} has no NISS` };
   if (shift.status !== 'accepted') return { success: false, error: `Shift status is "${shift.status}", expected "accepted"` };
+
+  // ✅ Skip Dimona auto pour les locations événementielles (ex: stand Doudou).
+  // Le flag `dimona_required=false` indique qu'aucune déclaration ONSS automatique
+  // ne doit être faite — la gestion administrative passe par Emilie/Partena hors flux.
+  if ((shift.locations as any)?.dimona_required === false) {
+    return {
+      success: true,
+      result: 'A',
+      error: undefined,
+      // skipped flag dans le retour pour info UI
+      anomalies: undefined,
+    } as DimonaResult;
+  }
 
   // ✅ Fix: vérifier TOUS les statuts existants, pas seulement sent/ok
   const { data: existing } = await supabase
@@ -249,11 +262,17 @@ export async function sendDimonaForTomorrow(): Promise<{
   tomorrow.setDate(tomorrow.getDate() + 1);
   const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
+  // ✅ Filtrer les shifts dont la location requiert une Dimona (dimona_required=true).
+  // Les locations événementielles (ex: stand Doudou) ont dimona_required=false
+  // et ne déclenchent donc pas de déclaration ONSS auto.
   const { data: shifts } = await supabase
     .from('shifts')
-    .select(`id, date, start_time, end_time, worker_id, flexi_workers!inner(first_name, last_name, niss)`)
+    .select(`id, date, start_time, end_time, worker_id, location_id,
+             flexi_workers!inner(first_name, last_name, niss),
+             locations!inner(id, dimona_required)`)
     .eq('date', tomorrowStr)
-    .eq('status', 'accepted');
+    .eq('status', 'accepted')
+    .eq('locations.dimona_required', true);
 
   if (!shifts?.length) return { sent: 0, failed: 0, results: [] };
 
