@@ -46,13 +46,13 @@ function shiftTotalCost(
   };
 }
 
-const STATUS_STYLES: Record<string, { bg: string; border: string; text: string; label: string; opacity: string; lineThrough: string; badge: string | null; badgeColor: string }> = {
-  draft:     { bg: 'bg-gray-100',    border: 'border-gray-200',    text: 'text-gray-600',    label: 'Brouillon',  opacity: 'opacity-60',  lineThrough: '', badge: null, badgeColor: '' },
-  proposed:  { bg: 'bg-amber-50',    border: 'border-amber-300',   text: 'text-amber-700',   label: 'En attente', opacity: '',            lineThrough: '', badge: null, badgeColor: '' },
-  accepted:  { bg: 'bg-emerald-50',  border: 'border-emerald-400', text: 'text-emerald-700', label: 'Accepté',    opacity: '',            lineThrough: '', badge: '✓',  badgeColor: 'text-emerald-600' },
-  refused:   { bg: 'bg-red-50',      border: 'border-red-300',     text: 'text-red-600',     label: 'Refusé',     opacity: 'opacity-50',  lineThrough: '', badge: '✕',  badgeColor: 'text-red-500' },
-  completed: { bg: 'bg-blue-50',     border: 'border-blue-300',    text: 'text-blue-600',    label: 'Terminé',    opacity: '',            lineThrough: '', badge: '⏱',  badgeColor: 'text-blue-500' },
-  cancelled: { bg: 'bg-red-50',      border: 'border-red-200',     text: 'text-red-400',     label: 'Annulé',     opacity: 'opacity-40',  lineThrough: 'line-through', badge: '✕', badgeColor: 'text-red-500' },
+const STATUS_STYLES: Record<string, { bg: string; border: string; text: string; label: string; opacity: string; lineThrough: string; badge: string | null; badgeBg: string }> = {
+  draft:     { bg: 'bg-gray-100',    border: 'border-gray-200',    text: 'text-gray-600',    label: 'Brouillon',  opacity: 'opacity-60',  lineThrough: '', badge: null, badgeBg: '' },
+  proposed:  { bg: 'bg-amber-50',    border: 'border-amber-300',   text: 'text-amber-700',   label: 'En attente', opacity: '',            lineThrough: '', badge: null, badgeBg: '' },
+  accepted:  { bg: 'bg-emerald-50',  border: 'border-emerald-400', text: 'text-emerald-700', label: 'Accepté',    opacity: '',            lineThrough: '', badge: '✓',  badgeBg: 'bg-emerald-500' },
+  refused:   { bg: 'bg-red-50',      border: 'border-red-300',     text: 'text-red-600',     label: 'Refusé',     opacity: 'opacity-50',  lineThrough: '', badge: '✕',  badgeBg: 'bg-red-500' },
+  completed: { bg: 'bg-blue-50',     border: 'border-blue-300',    text: 'text-blue-600',    label: 'Terminé',    opacity: '',            lineThrough: '', badge: '⏱',  badgeBg: 'bg-blue-500' },
+  cancelled: { bg: 'bg-red-50',      border: 'border-red-200',     text: 'text-red-400',     label: 'Annulé',     opacity: 'opacity-40',  lineThrough: 'line-through', badge: '✕', badgeBg: 'bg-red-500' },
 };
 
 const PRESETS = [
@@ -388,7 +388,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                     return (
                       <div key={s.id} onClick={() => openEditPanel(s)}
                         className={`${getLocationBgClass(s.locations)} border border-l-4 ${getLocationBorderClass(s.locations)} border-gray-200 ${st.opacity} ${st.lineThrough} relative rounded-lg px-3 py-2 flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform`}>
-                        {st.badge && <span className={`absolute top-0.5 right-1 text-[11px] font-bold ${st.badgeColor}`}>{st.badge}</span>}
+                        {st.badge && <span className={`absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full ${st.badgeBg} text-white text-[11px] font-bold flex items-center justify-center shadow-sm z-10`}>{st.badge}</span>}
                         <div>
                           <span className="text-xs font-bold text-gray-800">{s.role}</span>
                           <span className="text-xs text-gray-600 ml-2">{s.start_time?.slice(0, 5)} – {s.end_time?.slice(0, 5)}</span>
@@ -546,7 +546,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                               return (
                                 <div key={s.id} onClick={() => openEditPanel(s)}
                                   className={`${getLocationBgClass(s.locations)} border border-l-4 ${getLocationBorderClass(s.locations)} border-gray-200 ${st.opacity} ${st.lineThrough} relative rounded-lg px-2 py-1.5 text-[10px] leading-tight cursor-pointer hover:shadow-md transition-shadow`}>
-                                  {st.badge && <span className={`absolute top-0.5 right-1 text-[11px] font-bold ${st.badgeColor} z-10`}>{st.badge}</span>}
+                                  {st.badge && <span className={`absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full ${st.badgeBg} text-white text-[11px] font-bold flex items-center justify-center shadow-sm z-10`}>{st.badge}</span>}
                                   <div className="font-bold text-gray-800">{s.role || 'Polyvalent'}</div>
                                   <div className="text-gray-600">{s.start_time?.slice(0, 5)} – {s.end_time?.slice(0, 5)}</div>
                                   {/* Heures réelles ou planifiées */}
@@ -596,10 +596,10 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-4 flex-wrap">
               <span className="font-medium text-gray-400">Statut :</span>
-              <span className="flex items-center gap-1.5"><span className="text-emerald-600 font-bold">✓</span> Accepté</span>
+              <span className="flex items-center gap-1.5"><span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-emerald-500 text-white text-[9px] font-bold">✓</span> Accepté</span>
               <span className="flex items-center gap-1.5 text-gray-600">En attente</span>
               <span className="flex items-center gap-1.5 opacity-60">Brouillon</span>
-              <span className="flex items-center gap-1.5"><span className="text-red-500 font-bold">✕</span> <span className="line-through">Annulé</span></span>
+              <span className="flex items-center gap-1.5"><span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold">✕</span> <span className="line-through">Annulé</span></span>
               <span className="flex items-center gap-1.5 text-emerald-600 font-medium">✓ réel = pointage validé</span>
             </div>
             <div className="flex items-center gap-4 flex-wrap text-gray-500">
