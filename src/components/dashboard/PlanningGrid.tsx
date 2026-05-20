@@ -4,7 +4,7 @@ import { useState, useEffect, useTransition, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { createMultiShifts, updateShift, deleteShift, cancelShift } from '@/lib/actions/shifts';
-import { calculateHours, calculateCost, formatEuro } from '@/utils';
+import { calculateHours, calculateCost, formatEuro, getLocationBorderClass, getKnownLocationLegend } from '@/utils';
 import { getDefaultRate } from '@/types';
 import { calcTransportAllowance } from '@/lib/transport';
 import { Plus, X, ChevronLeft, ChevronRight, Users, Clock, Search, MapPin } from 'lucide-react';
@@ -387,7 +387,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                     const { hours, isReal, isValidated } = getEffectiveHours(s);
                     return (
                       <div key={s.id} onClick={() => openEditPanel(s)}
-                        className={`${st.bg} border ${st.border} rounded-lg px-3 py-2 flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform`}>
+                        className={`${st.bg} border border-l-4 ${getLocationBorderClass(s.locations)} ${st.border} rounded-lg px-3 py-2 flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform`}>
                         <div>
                           <span className={`text-xs font-bold ${st.text}`}>{s.role}</span>
                           <span className="text-xs text-gray-500 ml-2">{s.start_time?.slice(0, 5)} – {s.end_time?.slice(0, 5)}</span>
@@ -544,7 +544,7 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                               const isPast = s.date < today;
                               return (
                                 <div key={s.id} onClick={() => openEditPanel(s)}
-                                  className={`${st.bg} border ${st.border} rounded-lg px-2 py-1.5 text-[10px] leading-tight cursor-pointer hover:shadow-md transition-shadow`}>
+                                  className={`${st.bg} border border-l-4 ${getLocationBorderClass(s.locations)} ${st.border} rounded-lg px-2 py-1.5 text-[10px] leading-tight cursor-pointer hover:shadow-md transition-shadow`}>
                                   <div className={`font-bold ${st.text}`}>{s.role || 'Polyvalent'}</div>
                                   <div className="text-gray-500">{s.start_time?.slice(0, 5)} – {s.end_time?.slice(0, 5)}</div>
                                   {/* Heures réelles ou planifiées */}
@@ -591,15 +591,26 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
           </table>
         </div>
         <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t border-gray-200 text-xs">
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-400" /> Accepté</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400" /> En attente</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-gray-300" /> Brouillon</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-red-400" /> Annulé</span>
-            <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400" /> Dispo</span>
-            <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-300" /> Flexible</span>
-            <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-red-300" /> Indispo</span>
-            <span className="flex items-center gap-1.5 text-emerald-600 font-medium">✓ réel = validé</span>
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-4 flex-wrap">
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-400" /> Accepté</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400" /> En attente</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-gray-300" /> Brouillon</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-red-400" /> Annulé</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400" /> Dispo</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-300" /> Flexible</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-red-300" /> Indispo</span>
+              <span className="flex items-center gap-1.5 text-emerald-600 font-medium">✓ réel = validé</span>
+            </div>
+            <div className="flex items-center gap-4 flex-wrap text-gray-500">
+              <span className="font-medium text-gray-400">Sites :</span>
+              {getKnownLocationLegend().map((loc) => (
+                <span key={loc.name} className="flex items-center gap-1.5">
+                  <span className="inline-block w-3 h-2.5 rounded-sm" style={{ backgroundColor: loc.hex }} />
+                  {loc.label}
+                </span>
+              ))}
+            </div>
           </div>
           <div className="flex items-center gap-6 text-gray-500">
             <span>Heures : <strong className="text-gray-700">{formatH(totalHours)}</strong></span>
