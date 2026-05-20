@@ -1,16 +1,28 @@
 export type LocationLike = { name?: string | null } | null | undefined;
 
-const LOCATION_COLOR_MAP: Record<string, { borderClass: string; hex: string; legendLabel: string }> = {
-  'MDjambo Boussu':     { borderClass: '!border-l-blue-500',   hex: '#3b82f6', legendLabel: 'Boussu' },
-  'MDjambo Jurbise':    { borderClass: '!border-l-violet-500', hex: '#8b5cf6', legendLabel: 'Jurbise' },
-  'MDjambo Événements': { borderClass: '!border-l-amber-500',  hex: '#f59e0b', legendLabel: 'Événements' },
+type LocationStyle = {
+  borderClass: string;
+  bgClass: string;
+  hex: string;
+  legendLabel: string;
 };
 
-const FALLBACK = { borderClass: '!border-l-gray-400', hex: '#9ca3af', legendLabel: 'Autre' };
+const LOCATION_COLOR_MAP: Record<string, LocationStyle> = {
+  'MDjambo Boussu':     { borderClass: '!border-l-blue-500',   bgClass: 'bg-blue-50',   hex: '#3b82f6', legendLabel: 'Boussu' },
+  'MDjambo Jurbise':    { borderClass: '!border-l-violet-500', bgClass: 'bg-violet-50', hex: '#8b5cf6', legendLabel: 'Jurbise' },
+  'MDjambo Événements': { borderClass: '!border-l-amber-500',  bgClass: 'bg-amber-50',  hex: '#f59e0b', legendLabel: 'Événements' },
+};
+
+const FALLBACK: LocationStyle = { borderClass: '!border-l-gray-400', bgClass: 'bg-gray-50', hex: '#9ca3af', legendLabel: 'Autre' };
 
 export function getLocationBorderClass(location: LocationLike): string {
   if (!location?.name) return FALLBACK.borderClass;
   return LOCATION_COLOR_MAP[location.name]?.borderClass ?? FALLBACK.borderClass;
+}
+
+export function getLocationBgClass(location: LocationLike): string {
+  if (!location?.name) return FALLBACK.bgClass;
+  return LOCATION_COLOR_MAP[location.name]?.bgClass ?? FALLBACK.bgClass;
 }
 
 export function getLocationColorHex(location: LocationLike): string {
