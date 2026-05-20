@@ -4,7 +4,7 @@ import { useState, useEffect, useTransition, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { createMultiShifts, updateShift, deleteShift, cancelShift } from '@/lib/actions/shifts';
-import { calculateHours, calculateCost, formatEuro, getLocationBorderClass, getKnownLocationLegend } from '@/utils';
+import { calculateHours, calculateCost, formatEuro, getLocationBorderClass, getLocationBgClass, getKnownLocationLegend } from '@/utils';
 import { getDefaultRate } from '@/types';
 import { calcTransportAllowance } from '@/lib/transport';
 import { Plus, X, ChevronLeft, ChevronRight, Users, Clock, Search, MapPin } from 'lucide-react';
@@ -46,13 +46,13 @@ function shiftTotalCost(
   };
 }
 
-const STATUS_STYLES: Record<string, { bg: string; border: string; text: string; label: string }> = {
-  draft: { bg: 'bg-gray-100', border: 'border-gray-200', text: 'text-gray-600', label: 'Brouillon' },
-  proposed: { bg: 'bg-amber-50', border: 'border-amber-300', text: 'text-amber-700', label: 'En attente' },
-  accepted: { bg: 'bg-emerald-50', border: 'border-emerald-400', text: 'text-emerald-700', label: 'Accepté' },
-  refused: { bg: 'bg-red-50', border: 'border-red-300', text: 'text-red-600', label: 'Refusé' },
-  completed: { bg: 'bg-blue-50', border: 'border-blue-300', text: 'text-blue-600', label: 'Terminé' },
-  cancelled: { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-400', label: 'Annulé' },
+const STATUS_STYLES: Record<string, { bg: string; border: string; text: string; label: string; opacity: string; lineThrough: string; badge: string | null; badgeColor: string }> = {
+  draft:     { bg: 'bg-gray-100',    border: 'border-gray-200',    text: 'text-gray-600',    label: 'Brouillon',  opacity: 'opacity-60',  lineThrough: '', badge: null, badgeColor: '' },
+  proposed:  { bg: 'bg-amber-50',    border: 'border-amber-300',   text: 'text-amber-700',   label: 'En attente', opacity: '',            lineThrough: '', badge: null, badgeColor: '' },
+  accepted:  { bg: 'bg-emerald-50',  border: 'border-emerald-400', text: 'text-emerald-700', label: 'Accepté',    opacity: '',            lineThrough: '', badge: '✓',  badgeColor: 'text-emerald-600' },
+  refused:   { bg: 'bg-red-50',      border: 'border-red-300',     text: 'text-red-600',     label: 'Refusé',     opacity: 'opacity-50',  lineThrough: '', badge: '✕',  badgeColor: 'text-red-500' },
+  completed: { bg: 'bg-blue-50',     border: 'border-blue-300',    text: 'text-blue-600',    label: 'Terminé',    opacity: '',            lineThrough: '', badge: '⏱',  badgeColor: 'text-blue-500' },
+  cancelled: { bg: 'bg-red-50',      border: 'border-red-200',     text: 'text-red-400',     label: 'Annulé',     opacity: 'opacity-40',  lineThrough: 'line-through', badge: '✕', badgeColor: 'text-red-500' },
 };
 
 const PRESETS = [
@@ -387,14 +387,15 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                     const { hours, isReal, isValidated } = getEffectiveHours(s);
                     return (
                       <div key={s.id} onClick={() => openEditPanel(s)}
-                        className={`${st.bg} border border-l-4 ${getLocationBorderClass(s.locations)} ${st.border} rounded-lg px-3 py-2 flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform`}>
+                        className={`${getLocationBgClass(s.locations)} border border-l-4 ${getLocationBorderClass(s.locations)} border-gray-200 ${st.opacity} ${st.lineThrough} relative rounded-lg px-3 py-2 flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform`}>
+                        {st.badge && <span className={`absolute top-0.5 right-1 text-[11px] font-bold ${st.badgeColor}`}>{st.badge}</span>}
                         <div>
-                          <span className={`text-xs font-bold ${st.text}`}>{s.role}</span>
-                          <span className="text-xs text-gray-500 ml-2">{s.start_time?.slice(0, 5)} – {s.end_time?.slice(0, 5)}</span>
+                          <span className="text-xs font-bold text-gray-800">{s.role}</span>
+                          <span className="text-xs text-gray-600 ml-2">{s.start_time?.slice(0, 5)} – {s.end_time?.slice(0, 5)}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          {filterLocationId === 'all' && s.locations?.name && <span className="text-[10px] text-gray-400">{s.locations.name}</span>}
-                          <span className={`text-[10px] font-medium ${isValidated ? 'text-emerald-600' : isReal ? 'text-blue-500' : 'text-gray-400'}`}>
+                          {filterLocationId === 'all' && s.locations?.name && <span className="text-[10px] text-gray-500">{s.locations.name}</span>}
+                          <span className={`text-[10px] font-medium ${isValidated ? 'text-emerald-600' : isReal ? 'text-blue-500' : 'text-gray-500'}`}>
                             {isValidated ? '✓ ' : isReal ? '⏱ ' : ''}{formatH(hours)}
                           </span>
                         </div>
@@ -544,9 +545,10 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                               const isPast = s.date < today;
                               return (
                                 <div key={s.id} onClick={() => openEditPanel(s)}
-                                  className={`${st.bg} border border-l-4 ${getLocationBorderClass(s.locations)} ${st.border} rounded-lg px-2 py-1.5 text-[10px] leading-tight cursor-pointer hover:shadow-md transition-shadow`}>
-                                  <div className={`font-bold ${st.text}`}>{s.role || 'Polyvalent'}</div>
-                                  <div className="text-gray-500">{s.start_time?.slice(0, 5)} – {s.end_time?.slice(0, 5)}</div>
+                                  className={`${getLocationBgClass(s.locations)} border border-l-4 ${getLocationBorderClass(s.locations)} border-gray-200 ${st.opacity} ${st.lineThrough} relative rounded-lg px-2 py-1.5 text-[10px] leading-tight cursor-pointer hover:shadow-md transition-shadow`}>
+                                  {st.badge && <span className={`absolute top-0.5 right-1 text-[11px] font-bold ${st.badgeColor} z-10`}>{st.badge}</span>}
+                                  <div className="font-bold text-gray-800">{s.role || 'Polyvalent'}</div>
+                                  <div className="text-gray-600">{s.start_time?.slice(0, 5)} – {s.end_time?.slice(0, 5)}</div>
                                   {/* Heures réelles ou planifiées */}
                                   {isValidated ? (
                                     <div className="flex items-center gap-1 mt-0.5">
@@ -593,14 +595,12 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
         <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t border-gray-200 text-xs">
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-4 flex-wrap">
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-400" /> Accepté</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400" /> En attente</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-gray-300" /> Brouillon</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-red-400" /> Annulé</span>
-              <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400" /> Dispo</span>
-              <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-300" /> Flexible</span>
-              <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-red-300" /> Indispo</span>
-              <span className="flex items-center gap-1.5 text-emerald-600 font-medium">✓ réel = validé</span>
+              <span className="font-medium text-gray-400">Statut :</span>
+              <span className="flex items-center gap-1.5"><span className="text-emerald-600 font-bold">✓</span> Accepté</span>
+              <span className="flex items-center gap-1.5 text-gray-600">En attente</span>
+              <span className="flex items-center gap-1.5 opacity-60">Brouillon</span>
+              <span className="flex items-center gap-1.5"><span className="text-red-500 font-bold">✕</span> <span className="line-through">Annulé</span></span>
+              <span className="flex items-center gap-1.5 text-emerald-600 font-medium">✓ réel = pointage validé</span>
             </div>
             <div className="flex items-center gap-4 flex-wrap text-gray-500">
               <span className="font-medium text-gray-400">Sites :</span>
@@ -610,6 +610,10 @@ export default function PlanningGrid({ shifts, locations, allWorkers, weekStart,
                   {loc.label}
                 </span>
               ))}
+              <span className="ml-4 font-medium text-gray-400">Dispo workers :</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400" /> Dispo</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-300" /> Flexible</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-red-300" /> Indispo</span>
             </div>
           </div>
           <div className="flex items-center gap-6 text-gray-500">
