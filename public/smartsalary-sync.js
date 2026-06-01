@@ -31,6 +31,31 @@
     };
   }
 
+  // ── Helpers heures ──
+  // Le format Partena des heures est "0.HH:MM:SS" (jours.heures:minutes:secondes).
+  function parseTimespan(h) {
+    try {
+      var after = (h.indexOf('.') >= 0) ? h.split('.')[1] : h;
+      var parts = after.split(':');
+      var hh = parseInt(parts[0], 10) || 0;
+      var mm = parseInt(parts[1], 10) || 0;
+      return hh + mm / 60;
+    } catch (e) { return 0; }
+  }
+  function dayHours(day) {
+    var h = (day.performances && day.performances[0] && day.performances[0].hours) || '0.00:00:00';
+    return parseTimespan(h);
+  }
+  function workerHours(w) {
+    return (w.timesheetMonth || []).reduce(function (acc, d) { return acc + dayHours(d); }, 0);
+  }
+  function fmtHM(dec) {
+    var h = Math.floor(dec + 1e-9);
+    var m = Math.round((dec - h) * 60);
+    if (m === 60) { h++; m = 0; }
+    return h + 'h' + String(m).padStart(2, '0');
+  }
+
   // ── Capture token Partena ──
   function isValidJWT(t) {
     if (!t || t.split('.').length !== 3) return false;
@@ -129,7 +154,7 @@
           '<select id="fritos-year" style="width:90px;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></select>' +
         '</div>' +
       '</div>' +
-      '<div id="fritos-preview" style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px;margin-bottom:12px;min-height:60px;">' +
+      '<div id="fritos-preview" style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px;margin-bottom:12px;min-height:60px;max-height:280px;overflow-y:auto;">' +
         '<div style="font-size:12px;color:#64748b;text-align:center;">Les prestations apparaîtront ici</div>' +
       '</div>' +
     '</div>' +
@@ -183,14 +208,10 @@
       var html = '';
       workers.forEach(function(w) {
         var totalDays = w.timesheetMonth.length;
-        var totalHours = w.timesheetMonth.reduce(function(acc, d) {
-          var h = d.performances[0] && d.performances[0].hours || '0.00:00:00';
-          var parts = h.split(':');
-          return acc + parseInt(parts[0].split('.')[1] || parts[0]) + parseInt(parts[1]) / 60;
-        }, 0);
+        var totalHours = workerHours(w);
         html += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1e293b;">' +
           '<span style="font-size:12px;color:#e2e8f0;">' + w.personId.split('#')[1] + ' · ' + (w.payrollGroupContext === '05' ? '🎓' : '⚡') + '</span>' +
-          '<span style="font-size:12px;color:#60a5fa;">' + totalDays + ' jour(s) · ' + totalHours.toFixed(1) + 'h</span>' +
+          '<span style="font-size:12px;color:#60a5fa;">' + totalDays + ' jour(s) · ' + fmtHM(totalHours) + '</span>' +
           '</div>';
       });
       preview.innerHTML = '<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">Prestations à synchroniser :</div>' + html;
@@ -265,6 +286,27 @@
     return map;
   }
 
+  // ── PUT d'un lot de workers vers GroupCalendar ──
+  // Retourne { http, httpBody, failed } où failed = { workerId: objetRejet }
+  // pour les workers que Partena a refusés (result:false).
+  async function putGroupCalendar(workersArr) {
+    var r = await _orig.call(window, GROUPCAL_API, {
+      method: 'PUT',
+      headers: partenaHeaders(),
+      body: JSON.stringify({ TimesheetMonthForWorkers: workersArr })
+    });
+    if (!r.ok) {
+      var body = '';
+      try { body = await r.text(); } catch (e) {}
+      return { http: r.status, httpBody: body, failed: {} };
+    }
+    var data = await r.json();
+    var arr = Array.isArray(data) ? data : [];
+    var failed = {};
+    arr.forEach(function (x) { if (x && x.result === false) failed[x.workerId] = x; });
+    return { http: 200, failed: failed };
+  }
+
   // ── Sync heures ──
   document.getElementById('fritos-hours-btn').addEventListener('click', async function () {
     if (!_partenaToken) return;
@@ -300,8 +342,12 @@
         return;
       }
 
+      // Compteurs globaux
+      var totalSyncedDays = 0;
+      var totalUnsyncedHours = 0;   // heures NON comptabilisées (à payer après régularisation)
+      var problems = [];            // [{ workerId, hours, days:[{date,hm,code}] , reason }]
+
       // ── Étape 2 : injecter le taskNumber par worker, écarter ceux sans relevé ouvert ──
-      var preErrors = [];
       var syncable = [];
       workers.forEach(function (w) {
         var info = taskMap[w.personId];
@@ -309,99 +355,97 @@
           w.taskNumber = info.taskNumber; // ← valeur dynamique réelle (ex: "03" en mai)
           syncable.push(w);
         } else {
-          var reason = (info && info.status)
-            ? 'relevé "' + info.status + '" (non ouvert)'
-            : 'relevé introuvable côté Partena';
-          preErrors.push('Worker #' + w.workerId + ': ' + reason + ' — non synchronisé');
+          var wh = workerHours(w);
+          totalUnsyncedHours += wh;
+          problems.push({
+            workerId: w.workerId,
+            hours: wh,
+            days: w.timesheetMonth.map(function (d) { return { date: (d.date || '').slice(0, 10), hm: dayHours(d), code: 'relevé non ouvert' }; }),
+            reason: (info && info.status) ? ('relevé "' + info.status + '"') : 'relevé introuvable'
+          });
         }
       });
 
-      if (!syncable.length) {
-        var errHtml0 = '<div style="font-size:11px;color:#ef4444;margin-bottom:6px;">Aucun worker synchronisable :</div>';
-        preErrors.forEach(function (e) {
-          errHtml0 += '<div style="font-size:11px;color:#ef4444;padding:4px 0;border-bottom:1px solid #1e293b;">' + e + '</div>';
-        });
-        document.getElementById('fritos-preview').innerHTML = errHtml0;
-        setStatus('❌ Aucun relevé ouvert pour ces workers', '#ef4444');
-        btn.disabled = false;
-        btn.textContent = '⏱ Sync heures vers Partena';
+      // ── Étape 3 : pousser worker par worker, avec repli jour par jour ──
+      // Partena rejette TOUT un worker si un seul de ses jours n'a pas de
+      // Dimona / d'occupation. On pousse chaque worker seul ; s'il est rejeté
+      // en bloc, on rejoue jour par jour pour faire passer les jours valides
+      // et isoler les jours fautifs (avec leurs heures à régulariser).
+      for (var i = 0; i < syncable.length; i++) {
+        var w = syncable[i];
+        setStatus('📤 ' + (i + 1) + '/' + syncable.length + ' — worker #' + w.workerId + ' (relevé ' + w.taskNumber + ')...', '#94a3b8');
+
+        var res = await putGroupCalendar([w]);
+
+        if (res.http !== 200) {
+          totalUnsyncedHours += workerHours(w);
+          problems.push({ workerId: w.workerId, hours: workerHours(w), days: [], reason: 'erreur HTTP ' + res.http });
+          console.error('[FritOS] Worker #' + w.workerId + ' HTTP ' + res.http, res.httpBody || '');
+          continue;
+        }
+
+        if (!res.failed[w.workerId]) {
+          totalSyncedDays += w.timesheetMonth.length;
+          console.log('[FritOS] Worker #' + w.workerId + ' OK (' + w.timesheetMonth.length + ' jour(s), relevé ' + w.taskNumber + ')');
+          continue;
+        }
+
+        // Rejeté en bloc → on isole jour par jour
+        console.warn('[FritOS] Worker #' + w.workerId + ' rejeté en bloc → repli jour par jour');
+        var badDays = [];
+        var workerUnsynced = 0;
+        for (var d = 0; d < w.timesheetMonth.length; d++) {
+          var day = w.timesheetMonth[d];
+          var dh = dayHours(day);
+          var single = Object.assign({}, w, { timesheetMonth: [day] });
+          var dres = await putGroupCalendar([single]);
+          var dayStr = (day.date || '').slice(0, 10);
+
+          if (dres.http === 200 && !dres.failed[w.workerId]) {
+            totalSyncedDays++;
+          } else {
+            var fw = dres.failed && dres.failed[w.workerId];
+            var code = (fw && fw.messages && fw.messages[0]) ? fw.messages[0].code : ('HTTP' + dres.http);
+            badDays.push({ date: dayStr, hm: dh, code: code });
+            workerUnsynced += dh;
+            console.warn('[FritOS] Worker #' + w.workerId + ' jour ' + dayStr + ' (' + fmtHM(dh) + ') rejeté', fw || dres.httpBody);
+          }
+        }
+
+        if (badDays.length) {
+          totalUnsyncedHours += workerUnsynced;
+          problems.push({ workerId: w.workerId, hours: workerUnsynced, days: badDays, reason: 'jour(s) sans Dimona/occupation' });
+        } else {
+          console.log('[FritOS] Worker #' + w.workerId + ' OK après repli jour par jour');
+        }
+      }
+
+      // ── Rapport ──
+      if (!problems.length) {
+        setStatus('✅ ' + totalSyncedDays + ' jour(s) synchronisé(s) avec succès !', '#22c55e');
+        btn.textContent = '✅ Heures synchronisées';
+        btn.style.background = '#22c55e';
         return;
       }
 
-      workers = syncable;
-
-      // ── Étape 3 : grouper par payrollGroupContext et pousser ──
-      var groups = {};
-      workers.forEach(function(w) {
-        var g = w.payrollGroupContext;
-        if (!groups[g]) groups[g] = [];
-        groups[g].push(w);
+      var html = '';
+      html += '<div style="font-size:12px;color:#22c55e;margin-bottom:4px;">✅ ' + totalSyncedDays + ' jour(s) synchronisé(s)</div>';
+      html += '<div style="font-size:12px;color:#fbbf24;margin-bottom:8px;font-weight:600;">⚠️ ' + fmtHM(totalUnsyncedHours) + ' non comptabilisées (à payer après régularisation Dimona)</div>';
+      problems.forEach(function (p) {
+        html += '<div style="margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #1e293b;">';
+        html += '<div style="font-size:12px;color:#fca5a5;font-weight:600;">Worker #' + p.workerId + ' — ' + fmtHM(p.hours) + ' (' + p.reason + ')</div>';
+        p.days.forEach(function (dd) {
+          html += '<div style="font-size:11px;color:#ef4444;padding-left:8px;">• ' + dd.date + ' — ' + fmtHM(dd.hm) + (dd.code ? ' [' + dd.code + ']' : '') + '</div>';
+        });
+        html += '</div>';
       });
+      document.getElementById('fritos-preview').innerHTML = html;
 
-      var allOk = preErrors.length === 0;
-      var totalSynced = 0;
-      var errors = preErrors.slice();
+      setStatus('⚠️ ' + totalSyncedDays + ' jour(s) OK — ' + fmtHM(totalUnsyncedHours) + ' à régulariser (détails ci-dessous)', '#f59e0b');
+      btn.disabled = false;
+      btn.textContent = '⏱ Sync heures vers Partena';
+      btn.style.background = '#3b82f6';
 
-      for (var g in groups) {
-        setStatus('📤 Envoi groupe ' + g + ' (' + groups[g].length + ' worker(s))...', '#94a3b8');
-        var payload = { TimesheetMonthForWorkers: groups[g] };
-        console.log('[FritOS] PUT GroupCalendar groupe ' + g + ' (taskNumber=' + (groups[g][0] && groups[g][0].taskNumber) + ')', JSON.stringify(payload, null, 2));
-
-        var r = await _orig.call(window, GROUPCAL_API, {
-          method: 'PUT',
-          headers: partenaHeaders(),
-          body: JSON.stringify(payload)
-        });
-
-        if (!r.ok) {
-          var errText = await r.text();
-          console.error('[FritOS] GroupCalendar groupe ' + g + ' HTTP ' + r.status, errText);
-          setStatus('❌ Erreur HTTP ' + r.status + ' groupe ' + g, '#ef4444');
-          allOk = false;
-        } else {
-          var respData = await r.json();
-          // respData peut être [] (succès total) ou un tableau d'objets avec result:false
-          var respArray = Array.isArray(respData) ? respData : [];
-          var failed = respArray.filter(function(w) { return w && w.result === false; });
-          var succeeded = groups[g].length - failed.length;
-          totalSynced += succeeded;
-
-          if (failed.length > 0) {
-            allOk = false;
-            failed.forEach(function(w) {
-              var msg = (w.messages && w.messages[0]) ? w.messages[0].message : 'Erreur inconnue';
-              var code = (w.messages && w.messages[0]) ? w.messages[0].code : '';
-              errors.push('Worker #' + w.workerId + ': ' + msg + (code ? ' [' + code + ']' : ''));
-              console.error('[FritOS] Rejeté par Partena worker #' + w.workerId + ':', JSON.stringify(w, null, 2));
-            });
-          }
-
-          console.log('[FritOS] GroupCalendar groupe ' + g + ' — OK: ' + succeeded + ', rejetés: ' + failed.length);
-        }
-      }
-
-      if (allOk) {
-        var total = workers.reduce(function(acc, w) { return acc + w.timesheetMonth.length; }, 0);
-        setStatus('✅ ' + total + ' jour(s) synchronisé(s) avec succès !', '#22c55e');
-        btn.textContent = '✅ Heures synchronisées';
-        btn.style.background = '#22c55e';
-      } else if (errors.length > 0) {
-        // Afficher les erreurs dans le preview
-        var errHtml = '<div style="font-size:11px;color:#fbbf24;margin-bottom:6px;">⚠️ ' + totalSynced + ' synchro(s) OK — ' + errors.length + ' rejeté(s) :</div>';
-        errors.forEach(function(e) {
-          errHtml += '<div style="font-size:11px;color:#ef4444;padding:4px 0;border-bottom:1px solid #1e293b;">' + e + '</div>';
-        });
-        document.getElementById('fritos-preview').innerHTML = errHtml;
-        setStatus('⚠️ ' + errors.length + ' worker(s) rejeté(s) — voir détails ci-dessus', '#f59e0b');
-        btn.disabled = false;
-        btn.textContent = '⏱ Sync heures vers Partena';
-        btn.style.background = '#3b82f6';
-      } else {
-        setStatus('❌ Erreur lors de la synchronisation', '#ef4444');
-        btn.disabled = false;
-        btn.textContent = '⏱ Sync heures vers Partena';
-        btn.style.background = '#3b82f6';
-      }
     } catch (e) {
       setStatus('❌ Erreur: ' + e.message, '#ef4444');
       btn.disabled = false;
