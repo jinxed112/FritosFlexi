@@ -2,16 +2,17 @@
 //
 // Rapport de réconciliation Dimona <-> pointage.
 // Pour une période (mois), compare par shift :
-//   - ce qui a été DÉCLARÉ  : dimona_declarations.status = 'ok' (et pas annulé)
-//   - ce qui a été PRESTÉ    : time_entries.clock_in non NULL
+//   - DÉCLARÉ  : dimona_declarations IN, status='ok', avec periodId (et pas annulé)
+//   - PRESTÉ   : time_entries.clock_in non NULL
 // et sort les deux désaccords :
-//   1) Dimona OK mais PAS de pointage  -> déclaré, pas venu -> à annuler / ne pas payer
-//   2) Pointage mais PAS de Dimona OK  -> bossé, pas déclaré -> à régulariser
+//   1) Dimona OK mais PAS de pointage  -> déclaré, pas venu -> bouton Annuler (no-show)
+//   2) Pointage mais PAS de Dimona OK  -> bossé, pas déclaré -> flag "tardif, voir Émilie"
 //
-// Page protégée par l'auth manager via le layout /dashboard.
 // Lecture serveur avec la service-role (même pattern que prestations/route.ts).
+// L'annulation réutilise l'action existante apiCancelDimona (-> ONSS, indépendant de Partena).
 
 import { createClient } from '@supabase/supabase-js';
+import CancelButton from './CancelButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,7 +29,6 @@ function monthBounds(year: number, month: number) {
   };
 }
 
-// Une relation Supabase peut revenir en objet (to-one) ou en tableau ; on normalise.
 function one(rel: any) {
   return Array.isArray(rel) ? rel[0] : rel;
 }
@@ -83,7 +83,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
 
     const { data: dd } = await supabase
       .from('dimona_declarations')
-      .select('shift_id, status, declaration_type')
+      .select('id, shift_id, status, declaration_type, dimona_period_id')
       .in('shift_id', shiftIds);
     dimonas = dd || [];
   }
@@ -96,12 +96,19 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
     if (t.actual_hours) hoursByShift.set(t.shift_id, (hoursByShift.get(t.shift_id) || 0) + Number(t.actual_hours));
   }
 
-  // Index Dimona par shift : "IN ok" et "CANCEL ok"
-  const dimonaInOk = new Set<string>();
-  const dimonaCancelOk = new Set<string>();
+  // Index Dimona par shift :
+  //  - inOkByShift : la déclaration IN acceptée (status='ok') avec un periodId -> annulable
+  //  - cancelOkByShift : un CANCEL déjà accepté -> occupation déjà annulée
+  const inOkByShift = new Map<string, { dimonaId: string; periodId: string }>();
+  const cancelOkByShift = new Set<string>();
   for (const d of dimonas) {
-    if (d.status === 'ok' && d.declaration_type === 'CANCEL') dimonaCancelOk.add(d.shift_id);
-    else if (d.status === 'ok') dimonaInOk.add(d.shift_id);
+    if (d.status === 'ok' && d.declaration_type === 'CANCEL') {
+      cancelOkByShift.add(d.shift_id);
+    } else if (d.status === 'ok' && d.declaration_type === 'IN' && d.dimona_period_id) {
+      if (!inOkByShift.has(d.shift_id)) {
+        inOkByShift.set(d.shift_id, { dimonaId: d.id, periodId: d.dimona_period_id });
+      }
+    }
   }
 
   const declaredNotWorked: any[] = []; // Dimona OK, pas venu
@@ -109,11 +116,12 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
   let okCount = 0;
 
   for (const s of (shifts || [])) {
-    const hasActiveDimona = dimonaInOk.has(s.id) && !dimonaCancelOk.has(s.id);
+    const inOk = inOkByShift.get(s.id);
+    const hasActiveDimona = !!inOk && !cancelOkByShift.has(s.id);
     const came = clockByShift.has(s.id);
 
     if (hasActiveDimona && !came) {
-      declaredNotWorked.push(s);
+      declaredNotWorked.push({ ...s, dimonaId: inOk!.dimonaId, periodId: inOk!.periodId });
     } else if (came && !hasActiveDimona) {
       workedNotDeclared.push({ ...s, hours: hoursByShift.get(s.id) || 0 });
     } else if (hasActiveDimona && came) {
@@ -157,11 +165,12 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
         </div>
       </div>
 
-      {/* 1) Dimona OK mais pas venu */}
+      {/* 1) Dimona OK mais pas venu -> Annuler */}
       <section className="mb-8">
         <h2 className="text-lg font-semibold text-amber-700 mb-1">⚠️ Dimona ouverte mais pas venu travailler</h2>
         <p className="text-sm text-gray-500 mb-3">
-          Une Dimona acceptée existe pour ce shift, mais aucun pointage (clock_in). À annuler côté ONSS (Dimona-Cancel) et à ne pas payer si la personne n'est effectivement pas venue.
+          Une Dimona acceptée existe mais aucun pointage (clock_in). « Annuler » envoie un Dimona-Cancel à l'ONSS et passe le shift en « annulé ».
+          Rappel : pour être dans les délais, une annulation doit se faire le jour même du début prévu — au-delà c'est tardif.
         </p>
         {declaredNotWorked.length === 0 ? (
           <div className="text-sm text-gray-400 italic">Aucun cas — rien à annuler ce mois-ci.</div>
@@ -173,7 +182,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                 <th className="text-left px-3 py-2">Worker</th>
                 <th className="text-left px-3 py-2">Lieu</th>
                 <th className="text-left px-3 py-2">Horaire prévu</th>
-                <th className="text-left px-3 py-2">Statut shift</th>
+                <th className="text-left px-3 py-2">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -183,7 +192,9 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                   <td className="px-3 py-2 font-medium">{workerName(s)}</td>
                   <td className="px-3 py-2">{one(s.locations)?.name || '—'}</td>
                   <td className="px-3 py-2">{s.start_time?.slice(0, 5)}–{s.end_time?.slice(0, 5)}</td>
-                  <td className="px-3 py-2">{s.status}</td>
+                  <td className="px-3 py-2">
+                    <CancelButton dimonaId={s.dimonaId} label={`${workerName(s)} le ${s.date}`} />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -191,11 +202,13 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
         )}
       </section>
 
-      {/* 2) Presté sans Dimona */}
+      {/* 2) Presté sans Dimona -> flag tardif, pas de bouton */}
       <section>
         <h2 className="text-lg font-semibold text-red-700 mb-1">⛔ Presté mais sans Dimona</h2>
         <p className="text-sm text-gray-500 mb-3">
-          Un pointage existe mais aucune Dimona acceptée. Ces heures sont rejetées par Partena (SSPEJR) tant que la Dimona n'est pas régularisée. À déclarer (même en retard) avant de pouvoir les payer.
+          Un pointage existe mais aucune Dimona acceptée. Ces heures sont rejetées par Partena (SSPEJR). La Dimona aurait dû être posée
+          <strong> avant le début de la prestation</strong> — la régulariser maintenant = Dimona tardive (perte de l'avantage flexi + risque de sanction).
+          À traiter avec Émilie / l'ONSS, pas en auto.
         </p>
         {workedNotDeclared.length === 0 ? (
           <div className="text-sm text-gray-400 italic">Aucun cas — toutes les heures prestées ont une Dimona.</div>
@@ -207,7 +220,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                 <th className="text-left px-3 py-2">Worker</th>
                 <th className="text-left px-3 py-2">Lieu</th>
                 <th className="text-left px-3 py-2">Heures pointées</th>
-                <th className="text-left px-3 py-2">Statut shift</th>
+                <th className="text-left px-3 py-2">shift_id</th>
               </tr>
             </thead>
             <tbody>
@@ -217,7 +230,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                   <td className="px-3 py-2 font-medium">{workerName(s)}</td>
                   <td className="px-3 py-2">{one(s.locations)?.name || '—'}</td>
                   <td className="px-3 py-2 font-semibold text-red-700">{fmtHM(s.hours)}</td>
-                  <td className="px-3 py-2">{s.status}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-gray-400">{s.id}</td>
                 </tr>
               ))}
             </tbody>
