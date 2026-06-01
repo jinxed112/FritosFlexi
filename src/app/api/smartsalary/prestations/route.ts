@@ -2,17 +2,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// SECURITY: restreindre à l'origine Partena (alignement avec confirm/route.ts).
-// Avant : '*' permettait à tout site web d'exfiltrer les prestations workers
-// via le navigateur d'un manager connecté (même si x-fritos-auth requis).
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': 'https://my.partena-professional.be',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-fritos-auth',
-};
+// SECURITY: on n'autorise PAS '*' (n'importe quel site pourrait exfiltrer les
+// prestations via le navigateur d'un manager connecté). On restreint aux deux
+// sous-domaines Partena depuis lesquels le bookmarklet peut tourner.
+// my.partena-professional.be = ancien portail / smartsalary.partena-professional.be = SmartSalary.
+const ALLOWED_ORIGINS = [
+  'https://my.partena-professional.be',
+  'https://smartsalary.partena-professional.be',
+];
 
-export async function OPTIONS() {
-  return new NextResponse(null, { status: 200, headers: CORS_HEADERS });
+function corsHeaders(origin: string | null) {
+  const allow = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  return {
+    'Access-Control-Allow-Origin': allow,
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-fritos-auth',
+    'Vary': 'Origin',
+  };
+}
+
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, { status: 200, headers: corsHeaders(req.headers.get('origin')) });
 }
 
 function toTimespan(hours: number): string {
@@ -22,11 +32,13 @@ function toTimespan(hours: number): string {
 }
 
 export async function GET(req: NextRequest) {
+  const cors = corsHeaders(req.headers.get('origin'));
+
   const authHeader = req.headers.get('x-fritos-auth');
   const apiKey = process.env.BOOKMARKLET_API_KEY;
 
   if (!authHeader || !apiKey || authHeader !== apiKey) {
-    return NextResponse.json({ error: 'Non autorisé' }, { status: 401, headers: CORS_HEADERS });
+    return NextResponse.json({ error: 'Non autorisé' }, { status: 401, headers: cors });
   }
 
   const { searchParams } = new URL(req.url);
@@ -55,7 +67,7 @@ export async function GET(req: NextRequest) {
     .not('flexi_workers.smartsalary_person_id', 'is', null);
 
   if (!entries || entries.length === 0) {
-    return NextResponse.json({ TimesheetMonthForWorkers: [] }, { headers: CORS_HEADERS });
+    return NextResponse.json({ TimesheetMonthForWorkers: [] }, { headers: cors });
   }
 
   // Group by worker
@@ -75,7 +87,10 @@ export async function GET(req: NextRequest) {
         personId,
         workerId,
         payrollGroupContext,
-        taskNumber: "02",
+        // NOTE: le taskNumber (numéro de relevé) change à chaque période de paie
+        // chez Partena. On ne le hardcode plus ici : le bookmarklet lit le
+        // taskNumber réel du mois par worker (GroupCalendar en lecture) et
+        // l'injecte avant de pousser les heures.
         includeEssData: false,
         illnessWorkAccidentPeriods: [],
         timesheetMonth: [],
@@ -101,6 +116,6 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json(
     { TimesheetMonthForWorkers: Object.values(byWorker) },
-    { headers: CORS_HEADERS }
+    { headers: cors }
   );
 }

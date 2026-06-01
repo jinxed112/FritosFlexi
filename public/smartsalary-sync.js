@@ -19,6 +19,18 @@
   var _partenaToken = null;
   var _orig = window.fetch;
 
+  // En-têtes communs pour les appels à l'API Partena (lecture + écriture)
+  function partenaHeaders() {
+    return {
+      'Authorization': 'Bearer ' + _partenaToken,
+      'Content-Type': 'application/json',
+      'Accept-Language': 'fr',
+      'application': 'SmartSalary',
+      'payrollunitid': '308091',
+      'demomode': 'false'
+    };
+  }
+
   // ── Capture token Partena ──
   function isValidJWT(t) {
     if (!t || t.split('.').length !== 3) return false;
@@ -207,6 +219,52 @@
     btn.style.cursor = ready ? 'pointer' : 'not-allowed';
   }
 
+  // ── Récupère le numéro de relevé (taskNumber) courant par worker ──
+  // Le taskNumber change à CHAQUE période de paie côté Partena. On ne le
+  // hardcode plus : on appelle le GroupCalendar en lecture (POST) pour la
+  // période + les personIds concernés, et on lit
+  // result[].generalInfo.period.payClosingGroupInfo.taskNumber par worker.
+  // Retourne une map { personId: { taskNumber, status } }.
+  async function fetchTaskNumbers(personIds, year, month) {
+    var y = parseInt(year, 10);
+    var mo = parseInt(month, 10);
+    var mm = String(mo).padStart(2, '0');
+    var lastDay = new Date(y, mo, 0).getDate();
+    var startDate = y + '-' + mm + '-01';
+    var endDate = y + '-' + mm + '-' + String(lastDay).padStart(2, '0');
+
+    var r = await _orig.call(window, GROUPCAL_API, {
+      method: 'POST',
+      headers: partenaHeaders(),
+      body: JSON.stringify({
+        startDate: startDate,
+        endDate: endDate,
+        personIds: personIds,
+        isIllnessWorkAccidentPeriodsIncluded: true
+      })
+    });
+
+    if (!r.ok) {
+      throw new Error('lecture des relevés — HTTP ' + r.status);
+    }
+
+    var data = await r.json();
+    var result = (data && data.result) || [];
+    var map = {};
+    result.forEach(function (w) {
+      try {
+        var pci = w && w.generalInfo && w.generalInfo.period && w.generalInfo.period.payClosingGroupInfo;
+        map[w.personId] = {
+          taskNumber: (pci && pci.taskNumber != null) ? String(pci.taskNumber) : null,
+          status: w.periodStatus || null
+        };
+      } catch (e) {
+        map[w.personId] = { taskNumber: null, status: null };
+      }
+    });
+    return map;
+  }
+
   // ── Sync heures ──
   document.getElementById('fritos-hours-btn').addEventListener('click', async function () {
     if (!_partenaToken) return;
@@ -230,7 +288,49 @@
         return;
       }
 
-      // Grouper par payrollGroupContext
+      // ── Étape 1 : récupérer le bon taskNumber du mois pour chaque worker ──
+      setStatus('🔎 Lecture des relevés Partena...', '#94a3b8');
+      var taskMap;
+      try {
+        taskMap = await fetchTaskNumbers(workers.map(function (w) { return w.personId; }), year, month);
+      } catch (e) {
+        setStatus('❌ Impossible de lire les relevés Partena : ' + e.message, '#ef4444');
+        btn.disabled = false;
+        btn.textContent = '⏱ Sync heures vers Partena';
+        return;
+      }
+
+      // ── Étape 2 : injecter le taskNumber par worker, écarter ceux sans relevé ouvert ──
+      var preErrors = [];
+      var syncable = [];
+      workers.forEach(function (w) {
+        var info = taskMap[w.personId];
+        if (info && info.taskNumber) {
+          w.taskNumber = info.taskNumber; // ← valeur dynamique réelle (ex: "03" en mai)
+          syncable.push(w);
+        } else {
+          var reason = (info && info.status)
+            ? 'relevé "' + info.status + '" (non ouvert)'
+            : 'relevé introuvable côté Partena';
+          preErrors.push('Worker #' + w.workerId + ': ' + reason + ' — non synchronisé');
+        }
+      });
+
+      if (!syncable.length) {
+        var errHtml0 = '<div style="font-size:11px;color:#ef4444;margin-bottom:6px;">Aucun worker synchronisable :</div>';
+        preErrors.forEach(function (e) {
+          errHtml0 += '<div style="font-size:11px;color:#ef4444;padding:4px 0;border-bottom:1px solid #1e293b;">' + e + '</div>';
+        });
+        document.getElementById('fritos-preview').innerHTML = errHtml0;
+        setStatus('❌ Aucun relevé ouvert pour ces workers', '#ef4444');
+        btn.disabled = false;
+        btn.textContent = '⏱ Sync heures vers Partena';
+        return;
+      }
+
+      workers = syncable;
+
+      // ── Étape 3 : grouper par payrollGroupContext et pousser ──
       var groups = {};
       workers.forEach(function(w) {
         var g = w.payrollGroupContext;
@@ -238,27 +338,18 @@
         groups[g].push(w);
       });
 
-      var allOk = true;
+      var allOk = preErrors.length === 0;
       var totalSynced = 0;
-      var errors = [];
+      var errors = preErrors.slice();
 
       for (var g in groups) {
         setStatus('📤 Envoi groupe ' + g + ' (' + groups[g].length + ' worker(s))...', '#94a3b8');
         var payload = { TimesheetMonthForWorkers: groups[g] };
-        console.log('[FritOS] PUT GroupCalendar groupe ' + g, JSON.stringify(payload, null, 2));
+        console.log('[FritOS] PUT GroupCalendar groupe ' + g + ' (taskNumber=' + (groups[g][0] && groups[g][0].taskNumber) + ')', JSON.stringify(payload, null, 2));
 
         var r = await _orig.call(window, GROUPCAL_API, {
           method: 'PUT',
-          headers: {
-            'Authorization': 'Bearer ' + _partenaToken,
-            'Content-Type': 'application/json',
-            'Accept-Language': 'fr',
-            'application': 'SmartSalary',
-            'payrollunitid': '308091',
-            'demomode': 'false',
-            'origin': 'https://smartsalary.partena-professional.be',
-            'referer': 'https://smartsalary.partena-professional.be/'
-          },
+          headers: partenaHeaders(),
           body: JSON.stringify(payload)
         });
 
@@ -296,7 +387,7 @@
         btn.style.background = '#22c55e';
       } else if (errors.length > 0) {
         // Afficher les erreurs dans le preview
-        var errHtml = '<div style="font-size:11px;color:#fbbf24;margin-bottom:6px;">⚠️ ' + totalSynced + ' synchro(s) OK — ' + errors.length + ' rejeté(s) par Partena :</div>';
+        var errHtml = '<div style="font-size:11px;color:#fbbf24;margin-bottom:6px;">⚠️ ' + totalSynced + ' synchro(s) OK — ' + errors.length + ' rejeté(s) :</div>';
         errors.forEach(function(e) {
           errHtml += '<div style="font-size:11px;color:#ef4444;padding:4px 0;border-bottom:1px solid #1e293b;">' + e + '</div>';
         });
