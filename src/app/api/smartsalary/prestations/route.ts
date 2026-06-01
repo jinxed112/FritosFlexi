@@ -2,10 +2,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// SECURITY: on n'autorise PAS '*' (n'importe quel site pourrait exfiltrer les
-// prestations via le navigateur d'un manager connecté). On restreint aux deux
-// sous-domaines Partena depuis lesquels le bookmarklet peut tourner.
-// my.partena-professional.be = ancien portail / smartsalary.partena-professional.be = SmartSalary.
+// SECURITY: on n'autorise PAS '*'. On restreint aux deux sous-domaines Partena
+// depuis lesquels le bookmarklet peut tourner.
 const ALLOWED_ORIGINS = [
   'https://my.partena-professional.be',
   'https://smartsalary.partena-professional.be',
@@ -59,7 +57,7 @@ export async function GET(req: NextRequest) {
     .select(`
       id, actual_hours,
       shifts!inner(date, worker_id),
-      flexi_workers!inner(smartsalary_person_id, status)
+      flexi_workers!inner(smartsalary_person_id, status, first_name, last_name)
     `)
     .eq('validated', true)
     .gte('shifts.date', periodStart)
@@ -67,11 +65,15 @@ export async function GET(req: NextRequest) {
     .not('flexi_workers.smartsalary_person_id', 'is', null);
 
   if (!entries || entries.length === 0) {
-    return NextResponse.json({ TimesheetMonthForWorkers: [] }, { headers: cors });
+    return NextResponse.json(
+      { TimesheetMonthForWorkers: [], workerNames: {}, dimonaMeta: {} },
+      { headers: cors }
+    );
   }
 
-  // Group by worker
+  // Group by worker (payload Partena) + table des noms (méta, NON envoyée à Partena)
   const byWorker: Record<string, any> = {};
+  const workerNames: Record<string, string> = {};
 
   for (const entry of entries as any[]) {
     const shift = entry.shifts;
@@ -82,15 +84,14 @@ export async function GET(req: NextRequest) {
     const payrollGroupContext = isStudent ? '05' : '04';
     const date = shift.date; // YYYY-MM-DD
 
+    workerNames[personId] = `${worker.last_name || ''} ${worker.first_name || ''}`.trim() || `#${workerId}`;
+
     if (!byWorker[personId]) {
       byWorker[personId] = {
         personId,
         workerId,
         payrollGroupContext,
-        // NOTE: le taskNumber (numéro de relevé) change à chaque période de paie
-        // chez Partena. On ne le hardcode plus ici : le bookmarklet lit le
-        // taskNumber réel du mois par worker (GroupCalendar en lecture) et
-        // l'injecte avant de pousser les heures.
+        // taskNumber injecté dynamiquement par le bookmarklet (jamais hardcodé ici)
         includeEssData: false,
         illnessWorkAccidentPeriods: [],
         timesheetMonth: [],
@@ -114,8 +115,29 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // Méta Dimona : n° de période ONSS par worker + date (Dimona IN acceptée).
+  // Sert UNIQUEMENT au rapport côté bookmarklet (message Émilie). Pas envoyé à Partena.
+  const dimonaMeta: Record<string, Record<string, string>> = {};
+  const { data: dims } = await supabase
+    .from('dimona_declarations')
+    .select('dimona_period_id, shifts!inner(date), flexi_workers!inner(smartsalary_person_id)')
+    .eq('declaration_type', 'IN')
+    .eq('status', 'ok')
+    .not('dimona_period_id', 'is', null)
+    .gte('shifts.date', periodStart)
+    .lte('shifts.date', periodEnd);
+
+  for (const d of (dims || []) as any[]) {
+    const pid = d.flexi_workers?.smartsalary_person_id;
+    const date = d.shifts?.date;
+    if (pid && date && d.dimona_period_id) {
+      if (!dimonaMeta[pid]) dimonaMeta[pid] = {};
+      dimonaMeta[pid][date] = String(d.dimona_period_id);
+    }
+  }
+
   return NextResponse.json(
-    { TimesheetMonthForWorkers: Object.values(byWorker) },
+    { TimesheetMonthForWorkers: Object.values(byWorker), workerNames, dimonaMeta },
     { headers: cors }
   );
 }
